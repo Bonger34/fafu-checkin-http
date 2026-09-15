@@ -54,6 +54,17 @@ def _json(body, default=None):
     except (ValueError, TypeError):
         return default
 
+def _has(body, key):
+    """判定响应里是否存在字段 key。
+
+    优先按 JSON 解析，避免 '"records"' 这类子串匹配被空格/换行等格式差异击穿；
+    非 JSON（WAF 的 HTML 拦截页）回退子串匹配，保持对异常响应的宽容。
+    """
+    d = _json(body)
+    if isinstance(d, dict):
+        return key in d
+    return f'"{key}"' in (body or "")
+
 # ---- 打卡接口签名（复刻仓库 mk_auth）----
 def mk_auth(url, token=""):
     ts = str(int(time.time()))
@@ -136,35 +147,55 @@ def refresh_we_link(refresh_token):
     return tok, (d.get("refresh_token") if isinstance(d, dict) else None), st, body
 
 
-# ---- 会话保障：优先用本地 token，失效则刷新（带冷却）----
+# ---- 会话保障：优先用本地 token，失效则刷新（成功冷却 / 失败退避）----
+_BACKOFF = (60, 300, 1800, 7200)     # 刷新失败退避：1→5→30→120 分钟（与 reverse-notes 硬规则一致）
+
+def refresh_wait():
+    """距下次允许刷新还剩几秒；<=0 表示当前可以刷新"""
+    return CFG.get_state("next_refresh_after", 0) - time.time()
+
+def _refresh_state(ok, cooldown):
+    """返回本次刷新结果对应的会话态增量。
+
+    失败也必须写入 next_refresh_after：否则调用方在签到窗口内每分钟重打整条
+    刷新链（3 个 auth 请求），而实测 ~20 分钟 30 次就会触发 WAF 端点限流
+    15–20 分钟——正好覆盖 21:30 签到窗口，直接导致漏签。
+    """
+    now = time.time()
+    if ok:
+        return {"refresh_fail": 0, "last_refresh_ts": now, "next_refresh_after": now + cooldown}
+    n = min(CFG.get_state("refresh_fail", 0) + 1, len(_BACKOFF))
+    return {"refresh_fail": n, "next_refresh_after": now + _BACKOFF[n - 1]}
+
 def ensure_token(force=False, cooldown=1800):
-    """返回可用的打卡 token；失败返回 None。
+    """返回可用的打卡 token；不可用时返回 None。
 
     - 优先复用 state 中的 fafu_token，仅发 1 次请求验证
-    - 失效时用 refresh_token 刷新（默认 30 分钟冷却，防限流）
+    - 失效则用 refresh_token 刷新：成功后冷却 cooldown，失败按 _BACKOFF 递增退避
+    - 冷却/退避期内直接返回 None，不再空打刷新链（失败风暴会招来 WAF 限流）
     """
-    tok = CFG.fafu_token
-    if tok and not force:
-        st, b = api("sign_in/student/my/page", "rows=1&pageNum=1", tok)
-        if '"records"' in b:
-            return tok
-    last = CFG.get_state("last_refresh_ts", 0)
-    if not force and time.time() - last < cooldown:
-        return tok if tok else None          # 冷却中：返回旧 token（可能已失效）
+    if not force:
+        tok = CFG.fafu_token
+        if tok:
+            st, b = api("sign_in/student/my/page", "rows=1&pageNum=1", tok)
+            if _has(b, "records"):
+                return tok
+        if refresh_wait() > 0:
+            return None
     rt = CFG.refresh_token
     if not rt:
         return None
     wt, rt2, st, body = refresh_we_link(rt)
     if not wt:
-        return None
+        CFG.save_state(**_refresh_state(False, cooldown)); return None
     ac, st, _ = fetch_authcode(wt)
     if not ac:
-        return None
+        CFG.save_state(**_refresh_state(False, cooldown)); return None
     tok, st, msg = exchange_fafu_token(ac)
     if not tok:
-        return None
+        CFG.save_state(**_refresh_state(False, cooldown)); return None
     CFG.save_state(we_link_token=wt, refresh_token=rt2, fafu_token=tok,
-                   last_refresh_ts=time.time())
+                   **_refresh_state(True, cooldown))
     return tok
 
 
