@@ -11,11 +11,55 @@
     CFG.save_state(we_link_token=..., refresh_token=...)   # 自动落盘
     CFG.we_link_token                                      # 读取上次保存的
 """
-import os, json, random, configparser, datetime
+import os, json, random, time, configparser, datetime, contextlib
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _CFG_PATH = os.path.join(_DIR, "config.ini")
 _STATE_PATH = os.path.join(_DIR, "state.json")
+
+# ---- state.json 跨进程互斥 ----
+_LOCK_TIMEOUT = 5.0     # 获取锁的最长等待（秒）
+_LOCK_STALE = 30.0      # 锁文件超过此时长视为残留（持有者已崩溃）
+
+def _unlink(path):
+    """删除文件，忽略不存在等错误"""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+def _lock_is_stale(path):
+    """锁文件是否已过期（持有者被强杀后会留下残留锁）"""
+    try:
+        return time.time() - os.path.getmtime(path) > _LOCK_STALE
+    except OSError:
+        return False
+
+@contextlib.contextmanager
+def _state_lock():
+    """state.json 的「读—改—写」必须跨进程串行。
+
+    用 O_CREAT|O_EXCL 锁文件实现（Windows/Linux 通用，不依赖 fcntl/msvcrt）。
+    持有者被强杀会留下残留锁，按 mtime 判过期，避免后续进程永久阻塞。
+    """
+    path = _STATE_PATH + ".lock"
+    deadline = time.time() + _LOCK_TIMEOUT
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if _lock_is_stale(path):
+                _unlink(path)                       # 残留锁：持有者已异常退出
+                continue
+            if time.time() >= deadline:
+                raise TimeoutError(f"等待 state 锁超时：{path}")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        _unlink(path)
 
 # 客户端公共常量（非机密，所有用户一致）
 CLIENT_SECRET = "AtPs2O1xEnhwkKDV"     # H5 前端硬编码签名密钥
@@ -52,16 +96,12 @@ class Config:
         self.password = g("account", "password", "FAFU_PASSWORD")
         self.device_id = g("account", "device_id", "FAFU_DEVICE_ID")
         self.tenant_id = g("account", "tenant_id", "FAFU_TENANT_ID")
-        self._state = {}
-        if os.path.exists(_STATE_PATH):
-            try:
-                self._state = json.load(open(_STATE_PATH, encoding="utf-8"))
-            except Exception:
-                self._state = {}
+        self._state = self._read_state_file()
 
     # ---- 会话态（自动持久化到 state.json，避免脚本间手工传递）----
     # 已知的会话态键；未设置的返回空串，拼错的名字则抛 AttributeError（避免掩盖 bug）
-    _STATE_KEYS = frozenset({"we_link_token", "refresh_token", "fafu_token", "last_refresh_ts"})
+    _STATE_KEYS = frozenset({"we_link_token", "refresh_token", "fafu_token",
+                             "last_refresh_ts", "next_refresh_after", "refresh_fail"})
 
     def __getattr__(self, name):
         if name.startswith("_"):
@@ -80,24 +120,38 @@ class Config:
         """读取会话态（公开接口，避免直接访问 _state）"""
         return self._state.get(key, default)
 
-    def save_state(self, **kw):
-        self._state.update(kw)
-        # 原子写入：临时文件名含 PID+随机数，避免多进程并发互相覆盖
-        tmp = f"{_STATE_PATH}.{os.getpid()}.{random.randrange(1<<30)}.tmp"
+    def _read_state_file(self):
+        """读取磁盘上的会话态；文件缺失或损坏时返回空 dict（不抛异常）"""
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._state, f, ensure_ascii=False, indent=1)
-            os.replace(tmp, _STATE_PATH)          # 同目录 rename 是原子操作
+            with open(_STATE_PATH, encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_state(self, **kw):
+        """写入会话态：跨进程串行 + 增量合并 + 原子落盘。
+
+        每次都以磁盘最新内容为基准、只应用本次的 kw。daemon 这类长驻进程的
+        内存快照可能早已过期，若按内存全量覆盖，就会抹掉其他进程刚写入的键
+        —— refresh_token 每次刷新都会轮换，被抹掉即需重新短信登录。
+        """
+        with _state_lock():
+            merged = self._read_state_file()
+            merged.update(kw)
+            self._state = merged
+            # 原子写入：临时文件名含 PID+随机数，避免多进程并发互相覆盖
+            tmp = f"{_STATE_PATH}.{os.getpid()}.{random.randrange(1<<30)}.tmp"
             try:
-                os.chmod(_STATE_PATH, 0o600)
-            except Exception:
-                pass
-        finally:
-            if os.path.exists(tmp):
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(merged, f, ensure_ascii=False, indent=1)
+                os.replace(tmp, _STATE_PATH)      # 同目录 rename 是原子操作
                 try:
-                    os.remove(tmp)
-                except Exception:
+                    os.chmod(_STATE_PATH, 0o600)
+                except OSError:
                     pass
+            finally:
+                _unlink(tmp)
 
     def require(self, *names):
         """校验必填项，缺失则给出清晰报错（而非 KeyError）"""
