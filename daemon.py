@@ -11,9 +11,9 @@
     python3 daemon.py --once     # 只跑一轮检查（调试）
     nohup python3 daemon.py &    # 后台运行
 """
-import sys, time, random, datetime, logging
+import sys, os, time, random, atexit, datetime, logging
 from fafu_config import CFG, TZ, mask
-from fafu_lib import api, ensure_token, query_task
+from fafu_lib import api, ensure_token, query_task, _has
 
 # ---- 调度参数（可调）----
 KEEPALIVE_SEC   = 20 * 60      # 保活间隔（±20% 抖动）
@@ -27,6 +27,25 @@ WAKE_MARGIN     = 30           # 提前 30 秒唤醒（避免错过边界）
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                     datefmt="%m-%d %H:%M:%S")
 log = logging.getLogger("fafu")
+
+# ---- PID 文件：run.sh / run.bat 据此防止重复启动（多实例会并发空打刷新链）----
+_PID_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon.pid")
+
+def _clear_pid():
+    """退出时清理 PID 文件；仅当文件仍属于本进程才删，避免误删后继实例的"""
+    try:
+        with open(_PID_PATH, encoding="utf-8") as f:
+            pid = f.read().strip()
+        # 必须在 with 之外删除：Windows 不允许删除仍处于打开状态的文件
+        if pid == str(os.getpid()):
+            os.remove(_PID_PATH)
+    except OSError:
+        pass
+
+def _write_pid():
+    with open(_PID_PATH, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
+    atexit.register(_clear_pid)
 
 def now(): return datetime.datetime.now(TZ)
 def hm(): return now().strftime("%H:%M:%S")
@@ -71,7 +90,7 @@ def try_sign():
     if not (bt <= n <= dl):
         log.info("[%s] 不在签到时段", name); return False
     st, r = api(f"sign_in/{rid}/student/sign", "lng=119.243462&lat=26.088417", tok)
-    if '"timestamp"' in r:
+    if _has(r, "timestamp"):
         kind = "补签" if in_supp_window(t) else "签到"
         log.info("✅ %s成功 [%s] %s", kind, name, hm()); return True
     log.warning("签到失败(%s): %s", st, r[:100]); return False
@@ -124,4 +143,7 @@ def loop(once=False):
             log.error("循环异常：%s", e); time.sleep(60)
 
 if __name__ == "__main__":
-    loop(once="--once" in sys.argv)
+    once = "--once" in sys.argv
+    if not once:
+        _write_pid()                 # --once 是调试模式，不占用 PID 文件
+    loop(once=once)
