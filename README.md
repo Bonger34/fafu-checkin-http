@@ -1,5 +1,14 @@
 # fafu-checkin-http · 数字FAFU 自动签到（免 root）
 
+> ## ⚠️ 免责声明
+>
+> - 本项目**仅供个人学习与安全研究**，用于理解 OAuth/CAS 登录流程与接口签名机制。
+> - **严禁**用于代签、替他人签到、伪造考勤等任何违反校规或学术诚信的用途。
+> - 使用本项目的**全部风险与后果由使用者自行承担**；作者不对账号封禁、纪律处分、数据丢失等任何直接或间接损失负责。
+> - 本项目**与福建农林大学及华为 WeLink 无关**，非官方工具。
+> - 接口与签名**可能随时变更**，项目不保证持续可用；若校方明确禁止，请立即停止使用并删除本项目。
+> - 下载、克隆或运行本项目，即表示你已阅读并同意上述条款。详见 [DISCLAIMER.md](DISCLAIMER.md)。
+
 > 纯 HTTP 复现 WeLink/CAS 登录链 + 打卡接口，**无需 root、无需安装 App**。
 > 与 [Bonger34/fafu-checkin](https://github.com/Bonger34/fafu-checkin)（Magisk/KernelSU 模块，读 App LevelDB 取 token）的区别：
 > 本项目从零复现登录流程，可在任意环境运行，但需要账号密码与设备锁绑定的 deviceId。
@@ -12,6 +21,7 @@
 | 部署到 Linux / Windows / NAS / Termux | [docs/deploy.md](docs/deploy.md) |
 | 二次开发 / 接手维护 | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | 搞懂登录链、设备锁、限流 | [docs/reverse-notes.md](docs/reverse-notes.md) |
+| 查看使用条款 | [DISCLAIMER.md](DISCLAIMER.md) · [LICENSE](LICENSE) |
 
 > 术语：「**打卡**」=「**签到**」= 调用 `sign_in/{id}/student/sign`；「**保活**」= 周期性查询以维持 token 有效。
 

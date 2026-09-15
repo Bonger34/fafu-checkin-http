@@ -2,6 +2,7 @@
 
 > **面向**：接手本项目的开发者 / AI agent。
 > 使用见 [README](README.md) · 逆向细节见 [docs/reverse-notes.md](docs/reverse-notes.md) · 部署见 [docs/deploy.md](docs/deploy.md)。
+> ⚠️ 仅供学习研究，使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
 
 ## 一、定位：去哪改什么
 
