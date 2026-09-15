@@ -1,0 +1,7 @@
+# 逆向素材按原样保存（取证用，禁止换行归一化/文本转换）
+reverse/** -text
+reverse/** binary
+
+# 图片二进制
+*.jpg binary
+*.png binary

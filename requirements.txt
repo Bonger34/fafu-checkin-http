@@ -1,0 +1,10 @@
+# 数字FAFU 自动签到 —— 依赖
+# 安装： pip install -r requirements.txt
+
+cryptography>=3.4      # AES 加密（登录）、RSA-OAEP（租户 ID）
+numpy>=1.19            # 滑块图像数组处理
+opencv-python>=4.5     # 滑块验证码识别（仅首次登录需要）
+
+# 说明：
+#  - 日常签到（token 有效时）仅需 cryptography
+#  - 仅当 token 失效触发刷新时用 cryptography；滑块识别仅 login_once.py 需要

@@ -1,0 +1,19 @@
+# 真实配置（含账号/密码/设备ID）——绝不入库
+config.ini
+# 运行时会话态（含 token / cookie / refresh_token）
+state.json
+*.session
+# 抓包与票据文件
+*.json.bak
+cas_cookies.txt
+rt_fresh.txt
+wt_fresh.txt
+rt.txt
+__pycache__/
+*.pyc
+
+# 日志
+*.log
+daemon.log
+daemon.pid
+cron.log

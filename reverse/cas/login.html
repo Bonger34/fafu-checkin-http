@@ -1,0 +1,211 @@
+﻿﻿<!DOCTYPE html><html class="root-main">
+<!-- 移动端 --><!--校外用户登录--><!--校外用户登录--><!-- 帐号登录或动态码登录 --><head>
+	<meta charset="UTF-8"><meta name="renderer" content="webkit"><meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0"><title>统一身份认证平台</title>
+	<script>
+	    var needCaptcha = "";
+        var is_dynamicLogin = "false";
+	    var contextPath = "/authserver";
+	    var cllt = "";
+	    var type = "userNameLogin";
+		var captchaSwitch = "2";
+        var badCredentialsCount="0";
+		var reg = "[$:{}]";
+	</script>
+	<script>
+        var inputUserNameTip = "\u8BF7\u8F93\u5165\u7528\u6237\u540D";
+        var inputPasswordTip = "\u8BF7\u8F93\u5165\u5BC6\u7801";
+        var inputCodeTip = "\u8BF7\u8F93\u5165\u9A8C\u8BC1\u7801";
+        var inputMobileTip = "\u8BF7\u8F93\u5165\u624B\u673A\u53F7\u6216\u5B66\u53F7";
+	    var inputDynamicTip = "\u8BF7\u8F93\u5165\u9A8C\u8BC1\u7801";
+	    var inputDynamicGetCode = "\u83B7\u53D6\u9A8C\u8BC1\u7801";
+		var excludeRegular = "\u7528\u6237\u540D\u5305\u542B\u7279\u6B8A\u5B57\u7B26";
+    </script>
+	<link rel="stylesheet" href="/authserver/fafuThemeb/static/css/toastr.min.css?v=20260529.200429"><link rel="stylesheet" href="/authserver/fafuThemeb/static/mobile/css/index.css?v=20260529.200429"><link rel="stylesheet" href="/authserver/fafuThemeb/static/common/css/weui.min.css?v=20260529.200429"><link rel="stylesheet" href="/authserver/fafuThemeb/static/common/css/jquery-weui.min.css?v=20260529.200429"><script type="text/javascript" src="/authserver/fafuThemeb/static/common/jquery-latest.min.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/js/plugin/toastr.min.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/common/utils.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/common/common-header.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/common/jquery-weui.min.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/common/encrypt.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/mobile/js/login.js?v=20260529.200429"></script>
+	<script type="text/javascript" src="/authserver/fafuThemeb/static/web/js/fido.js?v=20260529.200429"></script>
+</head>
+<body  class="mBg" style="height: 100%;position: fixed">
+	<div class="language-div">
+		<select id="language" onchange="changeLanguage(this)"></select>
+	</div>
+	<div class="index_login2">
+		<div class="header-img">
+            <img src="/authserver/fafuThemeb/customStatic/mobile/img/logo.png" alt=""></div>
+
+		<!-- <h5 class="mWelcom"  th:text="#{login.page.mobile.welcome}"></h5> --><!-- <div class="header school-logo"><img id="logo" alt=""/></div> --><!-- fido登录 --><div id="fidoLoginDiv" class="hide"><div style="height: 260px;margin-top: 60px">
+
+		<form class="loginFromClass_fido" method="post" id="loginFromId_fido" action="/authserver/login">
+			<div style="color: red;margin: 5px auto;">
+				<span id="showErrorTip"></span>
+			</div>
+			<input type="hidden" id="_eventId" name="_eventId" value="submit" /><input type="hidden" id="username-fido" name="username" value=""><input type="hidden" id="responseJson-fido" name="responseJson" value=""><input type="hidden" id="cllt-fido" name="cllt" value="fidoLogin"><input type="hidden" id="dllt-fido" name="dllt" value="generalLogin"><input type="hidden" name="lt" id="lt" value="" /><input type="hidden" id="execution" name="execution" value="e1s1" /></form>
+		<div style="color: red;margin: 5px auto; display: none;" id="showFidoErrorTip">
+			<span id="showFidoErrorTipSpan" style="font-size: 14px;"></span>
+		</div>
+	</div></div>
+		<!-- 手机动态码登录 --><div id="phoneLoginDiv" class="hide"><div>
+		<div class="main">
+			<form method="post" id="loginFromId" class="loginFromClass" action="/authserver/login">
+				<div class="tel_login form">
+					<div class="input_box">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/user.png"></div>
+						<span class="login-inputuser-tip">请输入手机号/学号</span> 
+						<input type="text" id="username" name="username" autocomplete="off" placeholder="请输入手机号/学号" value="" /><a href="javascript:void(0);" class="input_del"></a>
+					</div>
+					<div id="captchaDiv" class="input_add" style="position: relative;">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/validation.png" style="width: 16px;height: 16px;margin-top: 0;"></div>
+						<span class="login-inputuser-tip">请输入验证码</span> 
+						<input type="text" id="captcha" name="captcha" autocomplete="off" placeholder="请输入验证码"><img id="captchaImg" alt="验证码错误" onclick="reloadCaptcha(true)" style="width:30%"><a href="javascript:void(0);" class="input_del input_del_pwd"></a>
+					</div>
+					<div class="input_add" style="position: relative;">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/password.png" style="width: 16px;height: 16px;margin-top: 0;"></div>
+						<span class="login-inputuser-tip">login.page.mobile.code</span>
+						<input type="text" id="dynamicCode" name="dynamicCode" placeholder="请输入短信验证码"/><a href="javascript:void(0);" class="get_code_btn lang_text_ellipsis" id="getTelCode" style="width:30%">获取验证码</a>
+						<a href="javascript:void(0);" class="input_del input_del_pwd"></a>
+					</div>
+					<!-- <div class="remark" th:text="#{login.page.mobile.tip}"></div> --></div>
+				<div id="formErrorTip2" class="lang_text_ellipsis" style="display: none">
+					</div>
+				<div class="btns">
+					<a href="javascript:;" class="btn_login lang_text_ellipsis" id="login_submit">登录</a>
+				</div>
+				<input type="hidden" name="_eventId" value="submit" /><input type="hidden" id="lt" name="lt" value=""><input type="hidden" id="cllt" name="cllt" value="dynamicLogin"><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" id="captcha_input" value=""><input  type="hidden"id="encryptSalt" value=""><input type="hidden" name="execution" value="e1s1" /></form>
+		</div>
+	</div></div>
+		<!-- 用户名密码登录 --><div id="pwdLoginDiv"><div>
+		<div class="main">
+			<form method="post" id="loginFromId" class="loginFromClass" action="/authserver/login">
+				<div class="pwd_login form">
+					<div class="input_box">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/user.png"></div>
+						<span class="login-inputuser-tip">请输入学号/工号</span>
+						<input type="text" id="username" name="username" placeholder="请输入学号/工号" value="" /><a href="javascript:void(0);" class="input_del"></a>
+					</div>
+					<div class="input_box">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/password.png"></div>
+						<span class="login-inputuser-tip">请输入密码</span>
+						<input type="password" id="password" name="userPassword"
+							placeholder="请输入密码" maxlength="32" /><input type="hidden" id="saltPassword" name="password"><a href="javascript:void(0);" class="input_eye input_eye_hide"></a>
+					</div>
+					<div class="input_add hide" id="captchaDiv">
+						<div class="pre-icon">
+							<img alt="" src="/authserver/fafuThemeb/customStatic/mobile/img/validation.png"
+								style="width: 16px;height: 16px;margin-top: 0;"></div>
+						<span class="login-inputuser-tip">请输入验证码</span>
+						<input type="text" id="captcha" name="captcha" placeholder="请输入验证码" /><img id="captchaImg" alt="验证码错误" onclick="reloadCaptcha(true)"
+							style="width:30%" /></div>
+					<!-- <div class="remember-me lang_text_ellipsis" th:if="${rememberMeAuthenticationEnabled}">
+						<input type="checkbox" name="rememberMe" id="rememberMe" value="true"/>
+						<span th:utext="#{login.page.rememberMe.name}"></span>
+					</div> --></div>
+				<div id="formErrorTip2" class="lang_text_ellipsis" style="display: none">
+					</div>
+				<div class="btns">
+					<a href="javascript:void(0);" class="btn_login lang_text_ellipsis" id="login_submit">登录</a>
+				</div>
+				<div class="agree-protocol">
+					<input type="checkbox" name="agreeProtocol" id="agreeProtocol" value="true" style="margin-right: 5px;"/><span><span>我已阅读并同意</span><a href="https://xxzx.fafu.edu.cn/2025/0411/c1037a87744/page.htm">《隐私协议》</a></span>
+				</div>
+				<div class="flex-col-betwwen">
+					<!-- <div class="remember-me lang_text_ellipsis" th:if="${rememberMeAuthenticationEnabled}">
+						<input type="checkbox" name="rememberMe" id="rememberMe" value="true" />
+						<span th:utext="#{login.page.rememberMe.name}" style="position: relative; top: -5px;color: blue;"></span>
+					</div> --><div class="onlineGuider">
+						<span>登录说明</span>
+						<div id="online-guide-tip">
+							<p>1、账号规则：学生登录帐号为学号，教工登录帐号为工号或上网帐号。</p>
+							<p>2、密码规则：同信息门户、OA、上网认证密码；</p>
+							<p>3、咨询电话：83789142或83789140。</p>
+							<p>4、注意事项：新进教职工或新生需要先进行帐号激活，然后才可以登录。</p>
+						</div>
+					</div>
+					<div>
+						<a id="activationAccountId" href="javascript:void(0);"
+							class="activation-account lang_text_ellipsis">账号激活</a>
+						<a id="retrievePassId" href="javascript:void(0);" class="retrieve-password lang_text_ellipsis">忘记密码</a>
+					</div>
+				</div>
+
+				<input type="hidden" name="_eventId" value="submit" /><input type="hidden" id="lt" name="lt" value=""><input type="hidden" id="cllt" name="cllt" value="userNameLogin"><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" id="captcha_input" value=""><input type="hidden" id="pwdEncryptSalt" value="6FuLxl7yvdZ9ZgUZ" /><input type="hidden" name="execution" value="e1s1" /></form>
+		</div>
+	</div></div>
+		<!-- <div class="btns_d">
+			<div style="float: left;line-height: 18px;">
+				<a id="mobileTab" th:href="@{/login(type=dynamicLogin)}" class="login_tab tel lang_text_ellipsis" th:text="#{login.page.login.mobile}"></a>
+				<a id="accountTab" th:href="@{/login(type=userNameLogin)}" class="login_tab pwd lang_text_ellipsis" th:text="#{login.page.login.account}" style="display: none"></a>
+				<span>&nbsp;</span>
+			</div>
+
+			<div class="forget_pwd">
+				<a id="activationAccountId" th:if="${_showAccountActivationLink}" href="javascript:void(0);" class="activation-account lang_text_ellipsis" th:text="#{login.page.account.activity.btn}"></a>
+		     	<a id="retrievePassId" href="javascript:void(0);" class="retrieve-password lang_text_ellipsis" th:text="#{login.page.forget.pwd}"></a>
+		     </div>
+		</div> --><div style="display: flex;align-items: center; justify-content: space-between;margin-top: 10px;">
+            <!-- <div class="onlineGuider" th:if="${_isOnlineGuideExist}">
+                <a id="fetchOnlineGuider" th:href="@{/fetchOnlineGuider}" style="border: none;color: red;"
+                    class="fo-password lang_text_ellipsis" th:text="#{login.page.onlineGuider}"></a>
+            </div> --><div>
+                <a id="mobileTab" href="/authserver/login?type=dynamicLogin" class="login_tab tel lang_text_ellipsis">使用手机验证码登录</a>
+                <a id="accountTab" href="/authserver/login?type=userNameLogin" class="login_tab pwd lang_text_ellipsis"
+                    style="display: none">账号密码登录</a>
+            </div>
+        </div>
+		<div class="footer combine_options_footer" style="margin-top: 100px;">
+			<div class="hot_line lang_text_ellipsis">
+				<span>您还可以使用以下方式登录</span>
+			</div>
+			<div class="login_ways">
+				</div>
+		</div>
+
+		<div class="auth-login-tip">本系统禁止处理涉密信息</div>
+	</div>
+	<!-- 滑块验证码 --><div id="sliderCaptchaDiv" style="width: 100%;height: 100%;"></div>
+</body>
+<script src="/authserver/fafuThemeb/static/custom/js/login-language.js?v=20260529.200429" type="text/javascript"></script>
+<script>
+    //不转码，切换登录方式参数连续编码
+    var service = ["http:\/\/auth.fafu.edu.cn\/authserver\/oauth2.0\/callbackAuthorize?client_id=998592105751490560\u0026redirect_uri=https%3A%2F%2Fapi.welink.huaweicloud.com%2Fsso%2Foauth2%2Fmagcallback.html\u0026response_type=code\u0026state=f26119d7-6768-4521-a416-1cf3009a3d2c\u0026client_name=CasOAuthClient"];
+</script>
+<script type="text/javascript">
+$(function(){
+
+	$('#retrievePassId').attr('href', "/retrieve-password/passwordMobile/index.html?t="+new Date().getTime());
+    $("#activationAccountId").attr("href","/retrieve-password/activationMobile/index.html?t="+new Date().getTime());
+	if(service == '' || !service){
+		service = '';//saml后缀
+	}
+	if(service != ""){
+		$("#loginFromId").attr("action",$("#loginFromId").attr("action")+"?service="+encodeURIComponent(service));
+		$("#mobileTab").attr("href",$("#mobileTab").attr("href")+"&service="+encodeURIComponent(service));
+		$("#accountTab").attr("href",$("#accountTab").attr("href")+"&service="+encodeURIComponent(service));
+		//忘记密码帐号激活
+		$("#retrievePassId").attr("href",$("#retrievePassId").attr("href")+"&service="+encodeURIComponent(service));
+        $("#activationAccountId").attr("href",$("#activationAccountId").attr("href")+"&service="+encodeURIComponent(service));
+
+        $("#mobile_combinedLogin_a_qq").attr("href",$("#mobile_combinedLogin_a_qq").attr("href")+"?service="+encodeURIComponent(service));
+		$("#mobile_combinedLogin_a_wx").attr("href",$("#mobile_combinedLogin_a_wx").attr("href")+"?service="+encodeURIComponent(service));
+	}
+	var loginType = "generalLogin";
+	if(!loginType){
+		loginType = "";
+		$("#dllt").val(loginType);
+	}
+	if(loginType != ''){
+		$("#mobileTab").attr("href",$("#mobileTab").attr("href")+"&login_type="+loginType);
+		$("#accountTab").attr("href",$("#accountTab").attr("href")+"&login_type="+loginType);
+		$("#dllt").val(loginType);
+	}
+});
+</script>
+<!-- PC端 --></html>
