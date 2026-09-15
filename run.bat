@@ -26,8 +26,14 @@ if "%1"=="start" (
 if "%1"=="stop" (
     taskkill /FI "WINDOWTITLE eq %TITLE%" >NUL 2>&1
     set KILLED=!errorlevel!
-    if exist daemon.pid del daemon.pid
-    if "!KILLED!"=="0" (echo ✅ 已停止) else (echo 未运行)
+    REM 仅在确认停止后才删 PID 文件：失败还删的话，旧实例仍在跑却没了 PID，
+    REM 下次 start 检测不到进程就会再拉起一个实例
+    if "!KILLED!"=="0" (
+        if exist daemon.pid del daemon.pid
+        echo ✅ 已停止
+    ) else (
+        echo 未能结束守护进程（PID 文件已保留，如确认在运行请手动结束）
+    )
     goto :eof
 )
 if "%1"=="status" ( %PY% rootless_checkin.py status & goto :eof )

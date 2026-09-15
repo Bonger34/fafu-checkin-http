@@ -67,6 +67,7 @@
 - **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`rootless_checkin.py status` 会显示当前退避余量。
 - **响应字段判定统一用 `fafu_lib._has`**：优先按 JSON 键判定，非 JSON（WAF 的 HTML 拦截页）回退子串匹配。不要再用 `'"records"' in body` 这类裸子串判断——服务端改个空格就会静默失效。
 - **PID 文件由 `daemon.py` 自己写**（`_write_pid`/`_clear_pid`），管理脚本只读不写。Windows 上删除文件前必须先关闭句柄，否则 `os.remove` 抛 `PermissionError` 被静默吞掉。
+- **管理脚本只在确认停止后才删 PID 文件**。kill/taskkill 失败却仍删的话，旧实例还在跑但 PID 没了，下次 start 检测不到进程就会重复拉起第二个实例。受限会话下 taskkill 报 Access denied 是常见路径，应按失败分支设计而非当异常处理。
 - **`signState` 未知值的探测**：当前只处理 `{0,1,2,None}`；遇到其他值会保守尝试签到。若发现新值，记入日志并更新本条。
 
 ## 五、验证
