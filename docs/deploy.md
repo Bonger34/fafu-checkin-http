@@ -24,6 +24,8 @@ echo $! > daemon.pid          # 记录 PID；停止：kill $(cat daemon.pid)
 * 22 * * *       cd /path/to/fafu-checkin-http && python3 rootless_checkin.py once >> cron.log 2>&1
 ```
 > 签到窗口按**北京时间（UTC+8）**判断。服务器时区不同请换算，或设 `TZ=Asia/Shanghai`。
+>
+> ⚠️ **不要与 `daemon.py` 或其他调度方式同时运行**：并发刷新会用同一个旧 `refresh_token` 打两次刷新链，可能互相作废并触发失败退避。选一种方式即可。
 
 ### 方式 3：systemd（最稳）
 

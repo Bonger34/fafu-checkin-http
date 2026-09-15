@@ -110,7 +110,7 @@
 | WeLink 刷新 | `v7/refresh/LoginReg` | 仅 2h 过期时 |
 | 签到提交 | `sign_in/{id}/student/sign` | 窗口内每分钟，成功即停 |
 
-**四条硬规则**：请求间隔 ≥2s；auth 端点指数退避（1→5→30→120 分钟）；保活失败先判网络再刷新；token 本地缓存复用。
+**四条硬规则**：请求间隔 ≥2s（`fafu_lib.MIN_GAP`）；auth 端点指数退避 1→5→30→120 分钟（`fafu_lib._BACKOFF`，**成功与失败都要写 `next_refresh_after`**，否则窗口内失败风暴会把自己打进限流）；保活失败先判网络再刷新；token 本地缓存复用。
 
 ## 五、未解之谜
 

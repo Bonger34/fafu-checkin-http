@@ -80,3 +80,12 @@ run.bat start | status | log | stop         # Windows
 
 - `config.ini` 与 `state.json` 含真实凭据，已加入 `.gitignore` 且权限 600——**切勿提交到版本库**。
 - 日志中的 token / 学号 / 设备 ID 已自动脱敏。
+- ⚠️ **校方接口为明文 HTTP**（`http://stuhtapi.fafu.edu.cn`、`http://auth.fafu.edu.cn`）。密码虽经 AES 加密上传，但加密密钥 `pwdEncryptSalt` 本身就是通过明文 HTTP 下发的——中间人可替换登录页并解出密码；`deviceId`、token、学籍信息同样明文传输。这是校方服务器的限制，本项目无法修复，**请勿在公共 Wi-Fi、代理或任何不可信网络下运行**。
+
+## 测试
+
+```bash
+python3 -m unittest discover -s tests -v    # 离线运行，不发任何真实请求
+```
+
+覆盖刷新退避、state 并发写、响应判定、窗口边界与 PID 文件生命周期。

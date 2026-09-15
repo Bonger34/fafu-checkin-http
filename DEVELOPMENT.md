@@ -53,8 +53,9 @@
 4. **`signState is None` 时保守签到**。只有明确 `!= 0` 才算已签；`None` 视为未知并尝试签到（幂等，宁可多签不可漏签）。→ `daemon.try_sign`
 5. **`configparser(interpolation=None)`**。否则密码含 `%` 抛 `InterpolationSyntaxError`。→ `fafu_config.Config.__init__`
 6. **token 落日志前脱敏**。用 `fafu_config.mask`，避免学号/设备/token 明文。→ `daemon` / `rootless_checkin` / `e2e_verify`
-7. **会话态原子写 + 唯一临时名**。`state.json` 用 `PID+随机数` 的 tmp 再 `os.replace`，否则多进程并发崩。→ `fafu_config.save_state`
+7. **会话态写入必须「加锁 + 增量合并 + 原子落盘」**。三者缺一不可：锁让「读—改—写」跨进程串行；**增量合并**保证不拿陈旧内存快照覆盖别的进程刚写的键（`refresh_token` 每次刷新都轮换，被抹掉就得重新短信登录）；`PID+随机数` 的 tmp 再 `os.replace` 保证不写坏文件。→ `fafu_config.save_state` / `_state_lock`
 8. **签名 URL 不含 query**。`mk_auth` 只签路径，query 单独拼（与参考仓库一致，服务端接受）。→ `fafu_lib.api`
+9. **刷新失败也必须写退避**。`ensure_token` 的每条失败分支都要落 `next_refresh_after`；否则窗口内每分钟重打整条刷新链（3 个 auth 请求），实测 ~20 分钟 30 次即触发 WAF 端点限流 15–20 分钟——正好覆盖签到窗口，直接漏签。→ `fafu_lib._refresh_state`
 
 ## 四、约定与坑
 
@@ -62,13 +63,17 @@
 - **`refresh_token` 滑动续期**：每次刷新重置 30 天（实测 `refresh_expires_in` 恒 `2592008`s）。持续运行永不过期；仅连续 30 天未运行才需重登。
 - **`authCode` 一次性**：用完即失效，不可缓存。
 - **滑块不走全局限流**：`fafu_login._cas` 用独立请求（需 0.3s 级时序）；仅登录时触发，频率低。
-- **`CFG` 属性**：拼错抛 `AttributeError`；会话态键限 `_STATE_KEYS`（`we_link_token`/`refresh_token`/`fafu_token`/`last_refresh_ts`）。
+- **`CFG` 属性**：拼错抛 `AttributeError`；会话态键限 `_STATE_KEYS`（`we_link_token`/`refresh_token`/`fafu_token`/`last_refresh_ts`/`next_refresh_after`/`refresh_fail`）。
+- **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`rootless_checkin.py status` 会显示当前退避余量。
+- **响应字段判定统一用 `fafu_lib._has`**：优先按 JSON 键判定，非 JSON（WAF 的 HTML 拦截页）回退子串匹配。不要再用 `'"records"' in body` 这类裸子串判断——服务端改个空格就会静默失效。
+- **PID 文件由 `daemon.py` 自己写**（`_write_pid`/`_clear_pid`），管理脚本只读不写。Windows 上删除文件前必须先关闭句柄，否则 `os.remove` 抛 `PermissionError` 被静默吞掉。
 - **`signState` 未知值的探测**：当前只处理 `{0,1,2,None}`；遇到其他值会保守尝试签到。若发现新值，记入日志并更新本条。
 
 ## 五、验证
 
 | 目的 | 命令 |
 |---|---|
+| 单元测试（离线，不发真实请求） | `python3 -m unittest discover -s tests -v` |
 | 导入检查 | `python3 -c "import fafu_config,fafu_lib,fafu_login,daemon"` |
 | 会话状态 | `python3 rootless_checkin.py status` |
 | 刷新会话 | `python3 rootless_checkin.py refresh` |
@@ -80,7 +85,7 @@
 
 ## 六、当前状态与待办
 
-**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）。
+**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动。
 
 **待人工**：
 1. 改 CAS 密码（`config.ini` 明文存储）
