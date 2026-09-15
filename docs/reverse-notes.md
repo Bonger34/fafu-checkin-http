@@ -1,7 +1,8 @@
 # 逆向笔记
 
 > **定位**：本项目的技术追溯——登录链、设备锁、限流、参考仓库对比的逆向过程与实测证据。
-> 使用见 [../README.md](../README.md)；开发约定见 [../DEVELOPMENT.md](../DEVELOPMENT.md)。记录日期：2026-09-15。
+> 使用见 [../README.md](../README.md)；开发约定见 [../DEVELOPMENT.md](../DEVELOPMENT.md)。
+> WeLink 多设备/踢下线机制的完整逆向见 [multi-device-login-analysis.md](multi-device-login-analysis.md)。记录日期：2026-09-15。
 
 ## 一、登录链（纯 HTTP，全部打通）
 

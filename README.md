@@ -21,6 +21,7 @@
 | 部署到 Linux / Windows / NAS / Termux | [docs/deploy.md](docs/deploy.md) |
 | 二次开发 / 接手维护 | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | 搞懂登录链、设备锁、限流 | [docs/reverse-notes.md](docs/reverse-notes.md) |
+| 深入 WeLink 多设备/踢下线机制 | [docs/multi-device-login-analysis.md](docs/multi-device-login-analysis.md) |
 | 查看使用条款 | [DISCLAIMER.md](DISCLAIMER.md) · [LICENSE](LICENSE) |
 
 > 术语：「**打卡**」=「**签到**」= 调用 `sign_in/{id}/student/sign`；「**保活**」= 周期性查询以维持 token 有效。
