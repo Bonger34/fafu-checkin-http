@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """公共库：签名、HTTP、登录链、限流退避。凭据全部来自 fafu_config。"""
-import json, time, random, string, base64, hashlib, re, urllib.request, urllib.parse, urllib.error
+import os, json, time, random, string, base64, hashlib, re, urllib.request, urllib.parse, urllib.error
 from fafu_config import CFG, CLIENT_SECRET, SCHOOL_NO, API_BASE, MAG_BASE, USER_AGENT
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -106,16 +106,23 @@ def exchange_fafu_token(authcode):
     return tok, st, body
 
 # ---- WeLink refresh_token 刷新（无需短信）----
-import os as _os
-_PUBKEY = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "pubkey.txt"),
-               encoding="utf-8").read().strip()
+_PUBKEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pubkey.txt")
 
 def _load_pubkey():
     """解析 pubkey.txt 为 RSA 公钥。
 
-    兼容 PEM 与裸 base64(DER)；对带非 base64 前缀的文件（历史格式）自动跳过。
+    惰性读取：原先在模块顶层 open，文件缺失时 `import fafu_lib` 直接抛
+    FileNotFoundError，连一句可读的错误都没有。兼容 PEM 与裸 base64(DER)；
+    对带非 base64 前缀的文件（历史格式）自动跳过。
     """
-    raw = _PUBKEY
+    try:
+        with open(_PUBKEY_PATH, encoding="utf-8") as f:
+            raw = f.read().strip()
+    except OSError as e:
+        raise RuntimeError(
+            f"无法读取 {_PUBKEY_PATH}：{e}\n"
+            "  该文件是 WeLink 公钥（RSA-OAEP 加密租户 ID 用），应随仓库完整获取"
+        ) from e
     if "BEGIN" in raw:                                   # PEM 格式
         return serialization.load_pem_public_key(raw.encode())
     for skip in range(0, 8):                             # 裸 base64，尝试跳过 0~7 个前缀字符
@@ -211,11 +218,25 @@ def ensure_token(force=False, cooldown=1800):
     return tok
 
 
-def query_task(token, rows=1):
-    """查询打卡任务；返回首条记录或 None"""
+def query_tasks(token, rows=5):
+    """查询打卡任务，返回记录列表（服务端按时间倒序）"""
     st, b = api("sign_in/student/my/page", f"rows={rows}&pageNum=1", token)
     d = _json(b, {})
     if not isinstance(d, dict):
+        return []
+    return d.get("records") or []
+
+def query_task(token, rows=5):
+    """查询打卡任务；返回「当前该处理」的那条，没有则 None。
+
+    多任务时优先挑未签到的：服务端按时间倒序返回，原实现恒取 recs[0]，
+    在「较新的任务已签、旧任务还没签」的场景下会误判成已完成而漏签。
+    """
+    recs = query_tasks(token, rows)
+    if not recs:
         return None
-    recs = d.get("records") or []
-    return recs[0] if recs else None
+    for r in recs:
+        ss = (r.get("signInStudent") or {}).get("signState")
+        if ss is None or ss == 0:            # 未签到（含状态未知）优先
+            return r
+    return recs[0]

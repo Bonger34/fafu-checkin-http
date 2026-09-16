@@ -91,7 +91,7 @@ def try_sign():
     t = now(); n = int(t.timestamp() * 1000)
     if not (bt <= n <= dl):
         log.info("[%s] 不在签到时段", name); return False
-    st, r = api(f"sign_in/{rid}/student/sign", "lng=119.243462&lat=26.088417", tok)
+    st, r = api(f"sign_in/{rid}/student/sign", f"lng={CFG.lng}&lat={CFG.lat}", tok)
     if _has(r, "timestamp"):
         kind = "补签" if in_supp_window(t) else "签到"
         log.info("✅ %s成功 [%s] %s", kind, name, hm()); return True

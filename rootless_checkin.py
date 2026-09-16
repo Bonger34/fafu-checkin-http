@@ -50,7 +50,7 @@ def cmd_refresh():
 
 def cmd_once():
     tok = get_fafu_token()
-    r0 = query_task(tok, rows=3)
+    r0 = query_task(tok, rows=5)
     if not r0: raise SystemExit("❌ 查询任务失败（token 或网络问题）")
     rid, name = r0.get("id"), r0.get("name", "签到")
     bt, et = r0.get("beginTime"), r0.get("endTime")
@@ -67,7 +67,7 @@ def cmd_once():
         print("→ 签到状态未知(signInStudent 缺失)，保守尝试签到")
     if not (bt <= now <= dl):
         print("→ 不在签到时段"); return
-    st2, r2 = api(f"sign_in/{rid}/student/sign", "lng=119.243462&lat=26.088417", tok)
+    st2, r2 = api(f"sign_in/{rid}/student/sign", f"lng={CFG.lng}&lat={CFG.lat}", tok)
     print("签到结果:", "✅ 成功" if _has(r2, "timestamp") else f"❌ {st2} {r2[:120]}")
 
 if __name__ == "__main__":

@@ -88,6 +88,14 @@ USER_AGENT = "HWorks.Android/7.49.17"
 # 打卡窗口以北京时间为准（中国全年 UTC+8）
 TZ = datetime.timezone(datetime.timedelta(hours=8), "CST")
 
+# 打卡提交时上报的定位（默认校区坐标）。可在 config.ini 覆盖：
+#   [location]
+#   lng = 119.243462
+#   lat = 26.088417
+# 或环境变量 FAFU_LNG / FAFU_LAT。
+DEFAULT_LNG = "119.243462"
+DEFAULT_LAT = "26.088417"
+
 def fmt_hm(ts_ms):
     """毫秒时间戳 → 北京时间 HH:MM"""
     return datetime.datetime.fromtimestamp(ts_ms / 1000, TZ).strftime("%H:%M")
@@ -112,6 +120,8 @@ class Config:
         self.password = g("account", "password", "FAFU_PASSWORD")
         self.device_id = g("account", "device_id", "FAFU_DEVICE_ID")
         self.tenant_id = g("account", "tenant_id", "FAFU_TENANT_ID")
+        self.lng = g("location", "lng", "FAFU_LNG", DEFAULT_LNG)
+        self.lat = g("location", "lat", "FAFU_LAT", DEFAULT_LAT)
         self._state = self._read_state_file()
 
     # ---- 会话态（自动持久化到 state.json，避免脚本间手工传递）----

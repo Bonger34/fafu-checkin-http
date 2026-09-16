@@ -10,7 +10,7 @@
   2. 陈旧内存快照全量覆盖 → 抹掉别的进程轮换后的 refresh_token（SaveStateTest）
   3. 响应判定用子串匹配 → 被格式差异击穿（PureFunctionTest.test_has_*）
 """
-import os, sys, time, base64, shutil, tempfile, datetime, unittest
+import os, sys, json, time, base64, shutil, tempfile, datetime, unittest
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
@@ -191,6 +191,31 @@ class PureFunctionTest(unittest.TestCase):
         self.assertIsNone(fafu_lib.cookie_token(["token=; Path=/; HttpOnly"]))
         self.assertIsNone(fafu_lib.cookie_token([]))
         self.assertIsNone(fafu_lib.cookie_token(None))
+
+    def test_query_task_prefers_unsigned(self):
+        """多任务时优先挑未签到的 —— 原实现恒取 recs[0]，会误判成已完成而漏签"""
+        orig = fafu_lib.api
+        try:
+            signed = {"id": 1, "signInStudent": {"signState": 1}}
+            unsigned = {"id": 2, "signInStudent": {"signState": 0}}
+            unknown = {"id": 3, "signInStudent": None}
+
+            fafu_lib.api = lambda *a, **k: (200, json.dumps({"records": [signed, unsigned]}))
+            self.assertEqual(fafu_lib.query_task("tok")["id"], 2)
+
+            # 状态未知也视为未签到
+            fafu_lib.api = lambda *a, **k: (200, json.dumps({"records": [signed, unknown]}))
+            self.assertEqual(fafu_lib.query_task("tok")["id"], 3)
+
+            # 全部已签 → 退回首条（供上层展示状态）
+            fafu_lib.api = lambda *a, **k: (200, json.dumps({"records": [signed]}))
+            self.assertEqual(fafu_lib.query_task("tok")["id"], 1)
+
+            # 无记录
+            fafu_lib.api = lambda *a, **k: (200, json.dumps({"records": []}))
+            self.assertIsNone(fafu_lib.query_task("tok"))
+        finally:
+            fafu_lib.api = orig
 
     def test_config_rejects_typo(self):
         """拼错的会话态键应明确报错，而非静默返回空串"""
