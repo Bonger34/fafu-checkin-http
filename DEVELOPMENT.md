@@ -57,6 +57,8 @@
 8. **签名 URL 不含 query**。`mk_auth` 只签路径，query 单独拼（与参考仓库一致，服务端接受）。→ `fafu_lib.api`
 9. **刷新失败也必须写退避**。`ensure_token` 的每条失败分支都要落 `next_refresh_after`；否则窗口内每分钟重打整条刷新链（3 个 auth 请求），实测 ~20 分钟 30 次即触发 WAF 端点限流 15–20 分钟——正好覆盖签到窗口，直接漏签。→ `fafu_lib._refresh_state`
 10. **登录前必须先过 `checkNeedCaptcha`，滑块还要先过 `toSliderCaptcha`**。这两个前置调用缺任何一个，`openSliderCaptcha` 照常返回图片，但 `verifySliderCaptcha` 永远回通用错误——调 moveLength、改 tracks、换加密都无效。验证码类型由服务端按风控在图形码/滑块间切换。→ `fafu_login._need_captcha` / `_to_slider` / `login`
+11. **CAS 全流程必须共用同一个 CookieJar**。登录成功会 302 到 MFA 页并下发新的 `JSESSIONID`，裸 `urlopen` 自动跟随重定向会丢弃它；拿旧 cookie 调 MFA 接口只会得到「请求超时重定向」。而且验证码结果存在会话里，提交 `/login` 也必须带同一会话。→ `fafu_login._new_opener` / `_cas(opener=...)`
+12. **提交 `/login` 的字段集只有 8 个**：`username/password/captcha/_eventId/cllt/dllt/lt/execution`。`captcha` 在滑块模式下是**空串也必须存在**；多带 `userPassword`/`rememberMe`/`agreeProtocol`/`uuid` 服务端不认。→ `fafu_login.login`
 
 ## 四、约定与坑
 
@@ -90,17 +92,17 @@
 
 ## 六、当前状态与待办
 
-**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径。
+**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径、**真实账号端到端跑通**（登录→滑块→MFA→短信→OAuth→WeLink token→FAFU token→查询任务）。
 
 **待人工**：
 1. 改 CAS 密码（`config.ini` 明文存储）
 2. 踢 `pixel_8_14` 设备
-3. **风控冷却后用真实账号跑一次 `login_once.py`**，确认端到端链路（见下方已知限制）
 
 **已知限制**：
 - "信任此设备"纯 HTTP 无法复现（需客户端设备指纹），不影响打卡。
 - `signState` 语义未获官方确认。
-- **登录链修复未经端到端验证**：排查期间该账号风控被抬升（浏览器点登录已从「出现滑块」变为直接报「图形动态码错误」），真实登录需等冷却后重试。已完成的离线验证：语法/导入/pyflakes 全过、40 项测试全绿、`solve_captcha` 走真实会话连续 4 次返回合格结果；滑块路径的修正依据是 `login.js`/`longbow.js` 源码，未经服务端确认。
+- 图形验证码路径（`captchaSwitch=1`）尚未遇到真实场景：实测该账号始终是滑块（`captchaSwitch=2`），OCR 只做到「取图+识别+长度过滤」的离线与半在线验证。
+- 风控会按账号/时段变化：`checkNeedCaptcha` 返回 `isNeed` 与 `captchaSwitch` 都可能在登录页上变化，抓包与实测都要以当次响应为准。
 
 ## 七、接手提示（agent）
 
