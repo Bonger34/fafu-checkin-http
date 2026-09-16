@@ -16,10 +16,12 @@ if "%1"=="start" (
         REM PID 由 daemon.py 自行写入；!PID! 需 enabledelayedexpansion 才能取到刚读入的值
         REM 用 Get-Process 而非 tasklist：受限会话（非交互式 / 组策略）下 tasklist 会
         REM 报 Access denied，被误判成「进程不存在」就会重复启动第二个实例
+        REM 还要核对进程名：光看 PID 存在会被 PID 复用骗到（daemon 早被强杀、
+        REM PID 被系统分给了别的进程），那样 start 会误判「已在运行」而拒绝启动
         set STATE=dead
-        for /f %%i in ('powershell -NoProfile -Command "if (Get-Process -Id !PID! -ErrorAction SilentlyContinue) { Write-Output alive }"') do set STATE=%%i
+        for /f %%i in ('powershell -NoProfile -Command "$p = Get-Process -Id !PID! -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -like 'python*') { Write-Output alive }"') do set STATE=%%i
         if "!STATE!"=="alive" (echo 已在运行 ^(PID !PID!^) & exit /b 0)
-        echo 检测到残留 PID 文件（进程 !PID! 不存在），继续启动
+        echo 检测到残留 PID 文件（PID !PID! 不是本项目的进程），继续启动
     )
     echo 正在启动守护进程...
     REM 用 cmd /c 包装，确保日志重定向在新窗口中生效
@@ -28,15 +30,26 @@ if "%1"=="start" (
     goto :eof
 )
 if "%1"=="stop" (
-    taskkill /FI "WINDOWTITLE eq %TITLE%" >NUL 2>&1
-    set KILLED=!errorlevel!
-    REM 仅在确认停止后才删 PID 文件：失败还删的话，旧实例仍在跑却没了 PID，
-    REM 下次 start 检测不到进程就会再拉起一个实例
-    if "!KILLED!"=="0" (
-        if exist daemon.pid del daemon.pid
-        echo ✅ 已停止
+    REM 按 PID 结束而不是按窗口标题：标题匹配既杀不到手动启动的实例，
+    REM 也可能误伤同名的其他窗口（run.sh 同样用 PID，保持一致）
+    if exist daemon.pid (
+        set /p PID=<daemon.pid
+        REM 先确认这个 PID 确实是本项目的 python，再动手，避免 PID 复用导致误杀
+        set ALIVE=dead
+        for /f %%i in ('powershell -NoProfile -Command "$p = Get-Process -Id !PID! -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -like 'python*') { Write-Output alive }"') do set ALIVE=%%i
+        if "!ALIVE!"=="alive" (
+            taskkill /PID !PID! /T /F >NUL 2>&1
+            if !errorlevel!==0 (
+                del daemon.pid
+                echo ✅ 已停止 ^(PID !PID!^)
+            ) else (
+                echo 未能结束进程 !PID!（PID 文件已保留，如确认在运行请手动结束）
+            )
+        ) else (
+            echo 未在运行（PID !PID! 不是本项目的 python 进程，PID 文件已保留）
+        )
     ) else (
-        echo 未能结束守护进程（PID 文件已保留，如确认在运行请手动结束）
+        echo 未在运行（没有 daemon.pid）
     )
     goto :eof
 )
