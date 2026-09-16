@@ -3,6 +3,10 @@ setlocal enabledelayedexpansion
 REM 数字FAFU 自动签到 —— Windows 管理脚本
 REM 用法: run.bat start | stop | status | log
 cd /d "%~dp0"
+REM 中文 Windows 控制台默认 GBK，脚本输出的 ✅ 等字符会抛 UnicodeEncodeError
+REM 直接崩在 status 上；切到 UTF-8 代码页并让 Python 也用 UTF-8
+chcp 65001 >nul
+set PYTHONUTF8=1
 set PY=python
 set TITLE=fafu-checkin
 
@@ -36,6 +40,13 @@ if "%1"=="stop" (
     )
     goto :eof
 )
-if "%1"=="status" ( %PY% rootless_checkin.py status & goto :eof )
-if "%1"=="log"    ( if exist daemon.log (type daemon.log) else (echo 无日志) & goto :eof )
+if "%1"=="status" (
+    %PY% rootless_checkin.py status
+    goto :eof
+)
+if "%1"=="log" (
+    REM 写成多行块：单行括号里的 goto :eof 不可靠，会继续落到下面的用法提示
+    if exist daemon.log (type daemon.log) else (echo 无日志)
+    goto :eof
+)
 echo 用法: run.bat start ^| stop ^| status ^| log
