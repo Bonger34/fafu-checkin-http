@@ -6,8 +6,12 @@ reverse/** binary
 *.jpg binary
 *.png binary
 
-# shell 脚本必须保持 LF：CRLF 会让 Linux 报 /bin/sh^M: bad interpreter
-# （core.autocrlf=true 的 Windows 环境下，缺这条规则时 checkout 会写成 CRLF）
-*.sh text eol=lf
-# Windows 批处理保持 CRLF
-*.bat text eol=crlf
+# Python 源码固定 LF。不只是洁癖：run.py 带 shebang 且设了可执行位，
+# 一旦被 core.autocrlf 落成 CRLF，Linux 上 `./run.py` 会直接报
+# `bad interpreter: /usr/bin/env python3^M`——而其余 .py 是靠 python3 显式调用的，
+# 踩不到这个坑，所以只有 run.py 会暴露问题。统一钉死最省事。
+*.py text eol=lf
+
+# 注：原先这里还有 *.sh (eol=lf) 与 *.bat (eol=crlf) 两条规则。
+# 启动逻辑统一到 run.py 之后，仓库里不再有 shell / 批处理脚本，规则一并移除；
+# 留下这条注释是为了让后来者知道它曾经存在，而不是被悄悄删掉。

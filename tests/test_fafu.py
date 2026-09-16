@@ -224,7 +224,7 @@ class PureFunctionTest(unittest.TestCase):
 
 
 class PidFileTest(unittest.TestCase):
-    """daemon 的 PID 文件生命周期（run.sh / run.bat 靠它防止重复启动）"""
+    """daemon 的 PID 文件生命周期（run.py 靠它防止重复启动）"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="fafu-test-")

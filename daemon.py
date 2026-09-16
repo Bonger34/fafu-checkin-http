@@ -11,11 +11,14 @@
     python3 daemon.py --once     # 只跑一轮检查（调试）
     nohup python3 daemon.py &    # 后台运行
 """
-import sys, os, time, random, atexit, datetime, logging
+import sys, os, time, random, atexit, json, datetime, logging
 from fafu_config import CFG, TZ, mask, setup_console
 from fafu_lib import api, ensure_token, query_task, _has
 
 setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_START_TS = time.time()  # 进程启动时刻，写进 PID 文件供 run.py 识破 PID 复用
 
 # ---- 调度参数（可调）----
 KEEPALIVE_SEC   = 20 * 60      # 保活间隔（±20% 抖动）
@@ -26,27 +29,107 @@ SUPP_END        = (23, 0)      # 补签截止
 SIGN_INTERVAL   = 60           # 窗口内检查间隔（秒）
 WAKE_MARGIN     = 30           # 提前 30 秒唤醒（避免错过边界）
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
-                    datefmt="%m-%d %H:%M:%S")
+# 不在模块层配 basicConfig：它会给 root 加 StreamHandler，而 "fafu" 的 handler
+# 又会向 root 传播，日志会被打印两遍。真正的 handler 由 _setup_logging() 装，
+# 且只在作为脚本运行时装；被 import（例如单测）时保持安静。
 log = logging.getLogger("fafu")
+log.addHandler(logging.NullHandler())
 
-# ---- PID 文件：run.sh / run.bat 据此防止重复启动（多实例会并发空打刷新链）----
-_PID_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon.pid")
+_PID_PATH = os.path.join(_HERE, "daemon.pid")
+_LOG_PATH = os.path.join(_HERE, "daemon.log")
+
+def _setup_logging():
+    """日志双写：文件固定 UTF-8 + 标准输出。
+
+    由 daemon 自己写文件（而不是让启动脚本 `>>` 重定向）是因为 shell 重定向在
+    中文 Windows 下按控制台代码页写，日志会变成 GBK；读的时候又是另一个坑。
+
+    stdout 始终挂 StreamHandler，由调用方决定它通向哪里：
+      · run.py start（Windows）→ 新控制台窗口，于是窗口里能实时看到
+      · run.py start（POSIX） → /dev/null，只有文件日志
+      · systemd              → journald，保持和以前一样的可观测性
+    所以**手工启动时不要把 stdout 重定向到 daemon.log**，否则会双写。
+    """
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%m-%d %H:%M:%S")
+    log.setLevel(logging.INFO)
+    log.handlers.clear()                      # 去掉 import 期占位的 NullHandler，保证幂等
+    fh = logging.FileHandler(_LOG_PATH, encoding="utf-8")
+    fh.setFormatter(fmt)
+    log.addHandler(fh)
+    if sys.stdout is not None:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        log.addHandler(sh)
+
+def _prep_console():
+    """Windows 控制台两件事，都只在「窗口模式」下才有意义：
+
+    1. **关掉 QuickEdit**。用户在窗口里拖选文本会让控制台进入标记模式，此后
+       任何写 stdout 的进程都会阻塞在 WriteConsole 上。daemon 一卡可能就是
+       几小时，正好错过签到窗口——这是把日志放进可见窗口必须付的代价。
+    2. 设置窗口标题，便于一眼认出是哪个脚本。
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.SetConsoleTitleW("fafu-checkin 自动签到 —— 关闭本窗口即停止")
+        h = k32.GetStdHandle(-11)                     # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint()
+        if k32.GetConsoleMode(h, ctypes.byref(mode)):
+            ENABLE_QUICK_EDIT, ENABLE_EXTENDED_FLAGS = 0x0040, 0x0080
+            k32.SetConsoleMode(h, (mode.value | ENABLE_EXTENDED_FLAGS) & ~ENABLE_QUICK_EDIT)
+    except Exception:
+        pass
+
+_ctrl_ref = None
+
+def _install_close_handler():
+    """关窗口 / 注销 / 关机时清掉 PID 文件。
+
+    atexit 在这些情况下不会执行（进程是被系统直接终止的），不处理就会一直
+    留下残留 PID 文件，下次 start 都要先报一句「检测到残留」。
+    """
+    global _ctrl_ref
+    if os.name != "nt":
+        import signal
+        # POSIX：run.py stop 发的是 SIGTERM，转成正常退出以便 atexit 清理
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        return
+    try:
+        import ctypes
+        HANDLER = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+        def _on_event(evt):
+            if evt in (2, 5, 6):                      # CLOSE / LOGOFF / SHUTDOWN
+                try:
+                    os.remove(_PID_PATH)
+                except OSError:
+                    pass
+            return False                              # 交回默认处理，正常退出
+
+        _ctrl_ref = HANDLER(_on_event)                # 必须持引用，否则会被 GC 回收
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_ctrl_ref, True)
+    except Exception:
+        pass
 
 def _clear_pid():
     """退出时清理 PID 文件；仅当文件仍属于本进程才删，避免误删后继实例的"""
     try:
         with open(_PID_PATH, encoding="utf-8") as f:
-            pid = f.read().strip()
+            pid = json.loads(f.read()).get("pid")
         # 必须在 with 之外删除：Windows 不允许删除仍处于打开状态的文件
-        if pid == str(os.getpid()):
+        if pid == os.getpid():
             os.remove(_PID_PATH)
-    except OSError:
+    except (OSError, ValueError, AttributeError):
         pass
 
 def _write_pid():
+    """写 pid + 启动时刻。启动时刻让 run.py 能比对进程真实创建时间，
+    从而识破 PID 复用（daemon 被强杀后 PID 被分给别的 python 进程）。"""
     with open(_PID_PATH, "w", encoding="utf-8") as f:
-        f.write(str(os.getpid()))
+        json.dump({"pid": os.getpid(), "started": _START_TS}, f)
     atexit.register(_clear_pid)
 
 def now(): return datetime.datetime.now(TZ)
@@ -145,7 +228,22 @@ def loop(once=False):
             log.error("循环异常：%s", e); time.sleep(60)
 
 if __name__ == "__main__":
+    _prep_console()                  # 关 QuickEdit + 设窗口标题（仅 Windows 窗口模式有意义）
+    _install_close_handler()         # 关窗口时也能清掉 PID 文件
+    _setup_logging()
     once = "--once" in sys.argv
-    if not once:
-        _write_pid()                 # --once 是调试模式，不占用 PID 文件
-    loop(once=once)
+    try:
+        if not once:
+            _write_pid()             # --once 是调试模式，不占用 PID 文件
+        loop(once=once)
+    except SystemExit:
+        raise
+    except BaseException:
+        log.exception("守护进程异常退出")
+        # 窗口模式下如果直接退出，窗口一闪就没了，用户完全不知道发生了什么。
+        if sys.stdout is not None and sys.stdout.isatty():
+            try:
+                input("\n发生错误（详见上面日志），按回车关闭窗口...")
+            except Exception:
+                pass
+        raise

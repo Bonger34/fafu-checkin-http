@@ -4,6 +4,7 @@
 cryptography>=3.4      # AES 加密（登录）、RSA-OAEP（租户 ID）
 numpy>=1.19            # 滑块图像数组处理
 opencv-python>=4.5     # 滑块缺口定位（仅首次登录需要）
+psutil>=5.9            # run.py 管理脚本：进程身份校验与停止（约 140 KB）
 
 # 可选：图形验证码 OCR。CAS 会按风控在「滑块」与「图形码」之间切换，
 # 只有被要求图形码时才用得上（会带入 onnxruntime，体积较大）。
@@ -13,3 +14,6 @@ ddddocr>=1.4
 #  - 日常签到（token 有效时）仅需 cryptography
 #  - 登录（login_once.py）需要 numpy + opencv-python；若服务端要求图形码，
 #    还需要 ddddocr，否则脚本会提示改用手机 App 扫码登录
+#  - psutil 只被 run.py 用到。缺失时 run.py 仍可运行，但进程身份判据会降级为
+#    「仅确认 PID 存在」，status 会明确标注；stop 在无法确认身份时会拒绝执行，
+#    以免 PID 复用误杀无关进程
