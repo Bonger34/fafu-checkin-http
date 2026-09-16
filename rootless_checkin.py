@@ -30,7 +30,7 @@ def get_fafu_token():
 
 def cmd_status():
     tok = CFG.fafu_token
-    print("账号:", CFG.username, "| 设备:", CFG.device_id)
+    print("账号:", mask(CFG.username, 3), "| 设备:", mask(CFG.device_id, 6))
     print("WeLink token:", mask(CFG.we_link_token, 8) if CFG.we_link_token else "(无)")
     print("refresh_token:", mask(CFG.refresh_token, 12) if CFG.refresh_token else "(无)")
     print("打卡 token:", mask(tok, 10) if tok else "(无)")

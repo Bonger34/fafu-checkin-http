@@ -136,6 +136,19 @@ def _rsa_tenant():
     return base64.b64encode(_PUBKEY_OBJ.encrypt(CFG.tenant_id.encode(),
         padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None))).decode()
 
+def cookie_token(set_cookies):
+    """从 Set-Cookie 列表里取 token 的值，取不到返回 None。
+
+    Set-Cookie 可能是 "token=; Path=/..."（值为空），此时 re.match 返回 None；
+    原先 next(... if c.startswith("token=")) 的写法在那种情况下会直接 .group(1)
+    崩栈，把整条登录链打断。
+    """
+    for c in (set_cookies or []):
+        m = re.match(r"token=([^;]+)", c)
+        if m:
+            return m.group(1)
+    return None
+
 def refresh_we_link(refresh_token):
     """refresh_token → 新 (we_link_token, refresh_token)。refresh_token 每次轮换。"""
     st, body, sc = _request(MAG_BASE + "/v7/refresh/LoginReg",
@@ -143,8 +156,7 @@ def refresh_we_link(refresh_token):
     if st != 200:
         return None, None, st, body
     d = _json(body, {})
-    tok = next((re.match(r"token=([^;]+)", c).group(1) for c in (sc or []) if c.startswith("token=")), None)
-    return tok, (d.get("refresh_token") if isinstance(d, dict) else None), st, body
+    return cookie_token(sc), (d.get("refresh_token") if isinstance(d, dict) else None), st, body
 
 
 # ---- 会话保障：优先用本地 token，失效则刷新（成功冷却 / 失败退避）----
