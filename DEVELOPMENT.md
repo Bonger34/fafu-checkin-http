@@ -56,6 +56,7 @@
 7. **会话态写入必须「加锁 + 增量合并 + 原子落盘」**。三者缺一不可：锁让「读—改—写」跨进程串行；**增量合并**保证不拿陈旧内存快照覆盖别的进程刚写的键（`refresh_token` 每次刷新都轮换，被抹掉就得重新短信登录）；`PID+随机数` 的 tmp 再 `os.replace` 保证不写坏文件。→ `fafu_config.save_state` / `_state_lock`
 8. **签名 URL 不含 query**。`mk_auth` 只签路径，query 单独拼（与参考仓库一致，服务端接受）。→ `fafu_lib.api`
 9. **刷新失败也必须写退避**。`ensure_token` 的每条失败分支都要落 `next_refresh_after`；否则窗口内每分钟重打整条刷新链（3 个 auth 请求），实测 ~20 分钟 30 次即触发 WAF 端点限流 15–20 分钟——正好覆盖签到窗口，直接漏签。→ `fafu_lib._refresh_state`
+10. **登录前必须先过 `checkNeedCaptcha`，滑块还要先过 `toSliderCaptcha`**。这两个前置调用缺任何一个，`openSliderCaptcha` 照常返回图片，但 `verifySliderCaptcha` 永远回通用错误——调 moveLength、改 tracks、换加密都无效。验证码类型由服务端按风控在图形码/滑块间切换。→ `fafu_login._need_captcha` / `_to_slider` / `login`
 
 ## 四、约定与坑
 
@@ -63,6 +64,9 @@
 - **`refresh_token` 滑动续期**：每次刷新重置 30 天（实测 `refresh_expires_in` 恒 `2592008`s）。持续运行永不过期；仅连续 30 天未运行才需重登。
 - **`authCode` 一次性**：用完即失效，不可缓存。
 - **滑块不走全局限流**：`fafu_login._cas` 用独立请求（需 0.3s 级时序）；仅登录时触发，频率低。
+- **验证码有两条路径，风控决定用哪条**：`captchaSwitch="1"` 图形码（`getCaptcha.htl`，80x30 JPEG，固定 4 位，OCR 走 `solve_captcha`）；`"2"` 滑块（`solve_slider`）。两者都要保留，不能只留一条。
+- **OCR 只能靠长度过滤，不能靠置信度**：实测 ddddocr 漏字时置信度仍有 0.99+（高于部分正确样本）。`_pick_captcha` 以长度为准、不合格就换图——换图不消耗登录次数，提交才消耗。`ddddocr` 为可选依赖，惰性导入。
+- **`_cas` 的 `binary=True`**：验证码图片是 JPEG，默认的 `.decode("utf-8","replace")` 会直接抛 `UnicodeEncodeError`。
 - **`CFG` 属性**：拼错抛 `AttributeError`；会话态键限 `_STATE_KEYS`（`we_link_token`/`refresh_token`/`fafu_token`/`last_refresh_ts`/`next_refresh_after`/`refresh_fail`）。
 - **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`rootless_checkin.py status` 会显示当前退避余量。
 - **响应字段判定统一用 `fafu_lib._has`**：优先按 JSON 键判定，非 JSON（WAF 的 HTML 拦截页）回退子串匹配。不要再用 `'"records"' in body` 这类裸子串判断——服务端改个空格就会静默失效。
@@ -86,19 +90,22 @@
 
 ## 六、当前状态与待办
 
-**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动。
+**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径。
 
 **待人工**：
 1. 改 CAS 密码（`config.ini` 明文存储）
 2. 踢 `pixel_8_14` 设备
+3. **风控冷却后用真实账号跑一次 `login_once.py`**，确认端到端链路（见下方已知限制）
 
 **已知限制**：
 - "信任此设备"纯 HTTP 无法复现（需客户端设备指纹），不影响打卡。
 - `signState` 语义未获官方确认。
+- **登录链修复未经端到端验证**：排查期间该账号风控被抬升（浏览器点登录已从「出现滑块」变为直接报「图形动态码错误」），真实登录需等冷却后重试。已完成的离线验证：语法/导入/pyflakes 全过、40 项测试全绿、`solve_captcha` 走真实会话连续 4 次返回合格结果；滑块路径的修正依据是 `login.js`/`longbow.js` 源码，未经服务端确认。
 
 ## 七、接手提示（agent）
 
 - **安全**：`config.ini` / `state.json` 含真实凭据，已 gitignore，**切勿提交或外泄**。
-- **改前先跑** `e2e_verify.py` 建立基线；**改后重跑**确认不破坏链路。
+- **改前先跑** `python3 -m unittest discover -s tests`（离线、秒级）；涉及真实链路时再跑 `e2e_verify.py` 建立基线，改后重跑确认不破坏。
+- **改登录链之前先读 `reverse/cas/login.js`**：验证码流程里有多个「不调用就静默失败」的前置接口（`checkNeedCaptcha`、`toSliderCaptcha`），只看 Python 侧完全看不出来。
 - **验证优先于声明**：签名/窗口/限流等行为以实测为准——本项目每条结论都有实测支撑。
 - **建议技能**：继续逆向/写文档 → `writing-for-agents`；需要交接 → `handoff`。

@@ -13,8 +13,18 @@
 2. GET  CAS /oauth2.0/authorize (用上面的 URL)
    → 登录页；提取 pwdEncryptSalt / execution
 
-3. 滑块验证：/common/openSliderCaptcha.htl → /common/verifySliderCaptcha.htl
-   （AES-128-CBC 签名，canvasLength=278，moveLength≈缺口x*280/大图宽+3..7）
+3. 验证码（由风控决定用哪种，两个 ★ 前置调用都不能跳）
+   ★ GET /checkNeedCaptcha.htl?username=<学号>&_=<时间戳> → {"isNeed":true|false}
+     （login.js 在提交前必调；跳过它后面怎么调都失败）
+   · captchaSwitch="1" 图形码：GET /getCaptcha.htl → 80x30 JPEG，固定 4 位字母数字，
+     识别结果随 /login 的 captcha 字段提交
+   · captchaSwitch="2" 滑块：
+     ★ GET /common/toSliderCaptcha.htl   先把会话切到滑块模式（返回滑块 HTML 片段）
+       GET /common/openSliderCaptcha.htl  取图（PNG 尾部 16 字节即 AES 密钥）
+       POST /common/verifySliderCaptcha.htl
+         sign = AES-128-CBC(randomString(64)+JSON, key=尾部16字节, iv=randomString(16))
+         JSON = {canvasLength:280, moveLength, tracks}
+         tracks 三项均为**累计值**：a=累计X位移、b=累计Y位移、c=距开始累计毫秒
 
 4. POST CAS /login  (password = AES-CBC(randomString(64)+pwd, salt, randomIV))
    → 302 到 reAuthLoginView.do?isMultifactor=true
@@ -38,6 +48,8 @@
 |---|---|
 | MFA 后仍要求 MFA | **`skipTmpReAuth=true` 破坏流程**——服务端尝试绑定设备指纹失败，MFA 未真正完成。改用 **`false`**（"仅本次登录"）立刻成功 |
 | 换 token 报 4006 | ① 必须用 **WeLink `auth/info` 返回的真实 state**；② 参数缺 **`thirdAuthType=3`** 和 **`authType=phone`** |
+| 滑块验证永远失败 | **漏了第 3 步的两个前置调用**（`checkNeedCaptcha` 与 `toSliderCaptcha`）。跳过时 `openSliderCaptcha` 照常返回图片，但 `verifySliderCaptcha` 一律回 `{"errorCode":0,"errorMsg":"error"}`——与 moveLength 精度、tracks 形态、加密方式**全都无关**，调参数是白费力气。另：`canvasLength` 是 280（登录页 `#sliderDiv` 写死 280px）而非 278 |
+| 图形码 OCR 漏字 | ddddocr 偶发漏识别时**置信度仍有 0.99+**（高于部分正确样本），置信度阈值挡不住；验证码固定 4 位，只能用长度过滤 + 换图重试 |
 
 ## 二、设备锁
 

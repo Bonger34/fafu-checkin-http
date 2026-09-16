@@ -36,10 +36,13 @@
   | 库 | 用途 | 日常签到是否必需 |
   |---|---|---|
   | `cryptography` | AES 加密（登录）、RSA-OAEP（租户 ID） | token 有效时不需；刷新时需要 |
-  | `opencv-python` | 滑块验证码识别 | 仅首次登录需要 |
+  | `opencv-python` | 滑块缺口定位 | 仅首次登录需要 |
   | `numpy` | 滑块图像处理 | 仅首次登录需要 |
+  | `ddddocr` | 图形验证码 OCR（可选） | 仅当服务端要求图形码时需要 |
 
   > 已登录且 token 有效时，纯签到只需 Python 标准库。
+  > CAS 会**按风控**在「滑块」与「图形码」之间切换；只有被要求图形码时才用得上 `ddddocr`，
+  > 未安装时脚本会明确提示改用手机 App 扫码登录，而不是抛堆栈。
 
 ## 快速开始
 
@@ -91,3 +94,5 @@ python3 -m unittest discover -s tests -v    # 离线运行，不发任何真实�
 覆盖刷新退避、state 并发写、响应判定、窗口边界与 PID 文件生命周期。
 
 `tests/test_flow.py` 另做 6 条完整业务链路的离线演练：只把最底层的网络出口换成假实现，签名、JSON 解析、会话保障、刷新退避、签到决策全部走真实代码，可覆盖「token 失效 → 自动刷新 → 签到成功」「刷新失败 → 退避不空转」等路径。
+
+`tests/test_login_flow.py` 覆盖 CAS 登录链的三个关键前置步骤（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）、滑块轨迹的累计语义，以及图形码 OCR 的长度过滤。未装 numpy/opencv 时该组自动跳过。
