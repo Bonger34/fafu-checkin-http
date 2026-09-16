@@ -47,11 +47,41 @@
 | 问题 | 真相 |
 |---|---|
 | MFA 后仍要求 MFA | **`skipTmpReAuth=true` 破坏流程**——服务端尝试绑定设备指纹失败，MFA 未真正完成。改用 **`false`**（"仅本次登录"）立刻成功 |
-| 换 token 报 4006 | ① 必须用 **WeLink `auth/info` 返回的真实 state**；② 参数缺 **`thirdAuthType=3`** 和 **`authType=phone`** |
+| 换 token 报 4006 | ① 当时判定要带 **WeLink `auth/info` 返回的真实 state**（⚠ 后续实测显示自编 state 也能端到端成功，见下方 41567 归因，此条不宜再当作硬性要求）；② 参数缺 **`thirdAuthType=3`** 和 **`authType=phone`** |
 | 滑块验证永远失败 | **漏了第 3 步的两个前置调用**（`checkNeedCaptcha` 与 `toSliderCaptcha`）。跳过时 `openSliderCaptcha` 照常返回图片，但 `verifySliderCaptcha` 一律回 `{"errorCode":0,"errorMsg":"error"}`——与 moveLength 精度、tracks 形态、加密方式**全都无关**，调参数是白费力气。另：`canvasLength` 是 280（登录页 `#sliderDiv` 写死 280px）而非 278 |
 | 图形码 OCR 漏字 | ddddocr 偶发漏识别时**置信度仍有 0.99+**（高于部分正确样本），置信度阈值挡不住；验证码固定 4 位，只能用长度过滤 + 换图重试 |
 | 登录后 MFA 接口报「请求超时重定向」 | **重定向过程中丢 cookie**。POST `/login` 成功会 302 到 MFA 页并下发新的 `JSESSIONID`，裸 `urlopen` 自动跟随重定向会丢弃中间响应的 `Set-Cookie`，拿旧 cookie 调 `/dynamicCode/*` 或 `/reAuthCheck/*` 一律被判为新会话。必须用 `http.cookiejar` 自动管理 |
 | 提交 `/login` 后原地返回登录页 | 两个坑叠加：① 未带会话 cookie（验证码结果存在会话里）；② 缺 `captcha` 字段——**滑块模式下它必须是空串而不是不提交**（浏览器抓包确认）。另外字段集只需 8 个，多带的 `userPassword`/`rememberMe`/`agreeProtocol`/`uuid` 服务端不认 |
+| 换 token 报 41567 `Get authorization username fail` | **通用错误，语义被泛化**：假 code / 空 code / 已消费的真 code / 截断一位的真 code，四种输入返回完全相同的响应。**触发条件未确定**，实测呈间歇性，与代码版本无关。详见下方实测 |
+
+### 41567 归因（2026-09-16 实测，共 6 次端到端运行）
+
+`login_once.py` 当天 6 次真实运行，**3 成 3 败，且成败与代码版本无关**：
+
+| # | 时间 | OAuth state | OAuth code | 结果 |
+|---|---|---|---|---|
+| 1 | 14:06 | 自编 | `OC36311FN8…` | ❌ 41567 |
+| 2 | 14:10 | **自编** | `OC3633yTBW…` | ✅ 成功 |
+| 3 | 14:50 | 真实 | `OC3652PFvQ…` | ❌ 41567 |
+| 4 | 14:54 | 真实 | — | ❌ 41567 |
+| 5 | 15:33 | 真实 | `OC3661xQ8nGy4hUCorPMYV1OmvRNpVkDkxRZl` | ✅ 成功 |
+| 6 | 16:03 | 真实 | `OC3673qc36IRYGjJ7kF8o4hMgCkCTSCFulJBZ` | ✅ 成功 |
+
+结论：
+
+1. **41567 与 `state` 无因果关系**：第 2 次用的就是 `random.randint` 自编 state，端到端成功。
+   改用 WeLink 下发的真实 state 依然正确（对齐真实浏览器行为），但**不要再声称它是根因**。
+2. **41567 与 code 提取方式无因果关系**：第 4 次与第 5、6 次代码**逐字节相同**，一败两成。
+3. **41567 是通用错误**，四种输入返回**完全相同**的响应
+   （HTTP 200 + `{"errorCode":"41567","errorMessage":"Get authorization username fail"}`）：
+   假 code、空 code、已消费的真 code、已消费真 code 去掉末位。
+   因此该错误码**无法区分**「code 无效」与「服务端拒绝」。
+4. 三次捕获到的真实 code 均为 **37 位纯字母数字**，在 URL 中原样出现、无百分号转义；
+   旧正则 `[?&]code=([A-Za-z0-9\-_.]{10,})` 本可完整匹配。
+
+**仍未确定**：41567 的触发条件。三次失败当时用的包装器没有打印完整 URL 与 code，
+无从比对；#3 / #4 只留下了 code 的前 10 位。
+code 提取改为 `[^&\s]+` + `unquote`，按「不做字符白名单截断」保留，不再声称它是根因。
 
 ## 二、设备锁
 
