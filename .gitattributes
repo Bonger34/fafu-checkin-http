@@ -5,3 +5,9 @@ reverse/** binary
 # 图片二进制
 *.jpg binary
 *.png binary
+
+# shell 脚本必须保持 LF：CRLF 会让 Linux 报 /bin/sh^M: bad interpreter
+# （core.autocrlf=true 的 Windows 环境下，缺这条规则时 checkout 会写成 CRLF）
+*.sh text eol=lf
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf
