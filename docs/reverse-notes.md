@@ -8,7 +8,7 @@
 
 ```
 1. POST MAG/FreeProxyForText/wemiddle/api/v1/enterprise/auth/info {tenantid}
-   → 返回 thirdLoginUrl（含 WeLink 生成的 state=UUID）★关键：不能自己编
+   → 返回 thirdLoginUrl（含 WeLink 生成的 state=UUID）★真实浏览器传的就是它
 
 2. GET  CAS /oauth2.0/authorize (用上面的 URL)
    → 登录页；提取 pwdEncryptSalt / execution

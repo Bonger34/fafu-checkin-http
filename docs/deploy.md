@@ -15,9 +15,8 @@ python3 run.py stop       # 停止
 ```
 自带调度：白天保活、21:30 签到、失败补签，无需配置 cron。
 
-三端同一份 `run.py`，没有平台专用脚本（`run.sh` / `run.bat` 已删除）。
-Windows 与 POSIX 的区别只有一处：`start` 会开一个可见窗口实时显示日志，
-**关掉窗口即停止**；POSIX 下静默后台运行，看实时日志用 `run.py log -f`。
+三端同一份 `run.py`（`run.sh` / `run.bat` 已删除）。`start` 后 POSIX 静默后台运行，
+Windows 会开一个可见窗口且**关掉窗口即停止**；平台差异详见文末「平台差异对照」。
 
 > `run.py` 自己管 PID 文件与重复启动检查，**不要**再手工 `nohup ... &` 加
 > `echo $! > daemon.pid`：那会把 daemon 写的 JSON 格式 PID 文件覆盖成纯数字，
@@ -86,7 +85,7 @@ pip install -r requirements.txt
 ```cmd
 copy config.example.ini config.ini
 notepad config.ini            :: 填 username / password / device_id
-set PYTHONUTF8=1              :: 避免中文乱码
+set PYTHONUTF8=1              :: 让 ✅ 等 emoji 正常显示（不设也不崩，会降级成 ?）
 python login_once.py
 ```
 按提示输入短信验证码。成功后 `state.json` 生成，之后**持续运行即无需再收短信**
@@ -108,6 +107,8 @@ python run.py stop
 2. **常规**：勾选「不管用户是否登录都要运行」「使用最高权限运行」
 3. **触发器**：新建 →「登录时」+「每天 07:00」
 4. **操作**：程序 `python`，参数 `daemon.py`，起始于 `C:\path\to\fafu-checkin-http`
+   （任务计划本身就是"守护者"，与 systemd 同理，不需要 `run.py`；但也**别再叠加**
+   `run.py start`——两者同时跑会并发刷新，见方式 2 的告警）
 5. **设置**：勾选「如果任务失败，按以下频率重新启动」→ 1 分钟
 
 > 也可只让任务在 21:25 启动一次，`daemon.py` 会自己等到 21:30 签到。
@@ -117,15 +118,17 @@ python run.py stop
 ```bat
 @echo off
 cd /d C:\path\to\fafu-checkin-http
-set PYTHONUTF8=1
-python daemon.py
+python run.py start
 ```
+> 这里走 `run.py` 而不是直接 `python daemon.py`：启动文件夹不是"守护者"，没有它就没有
+> 重复启动检查，之后也没法 `run.py status` / `stop`。`run.py start` 会另开一个新窗口，
+> 这个 bat 窗口随即关闭。
 
 ### 5. Windows 常见问题
 
 | 问题 | 解决 |
 |---|---|
-| 控制台中文乱码 | 运行前 `set PYTHONUTF8=1`，或 `chcp 65001` |
+| 控制台里 ✅/⚠️ 显示成 `?` | 运行前 `set PYTHONUTF8=1`，或 `chcp 65001`。不设也不会崩——各入口的 `setup_console()` 会把无法编码的字符降级成 `?`，中文本身在 GBK 下是正常的 |
 | `pip` 不是命令 | 用 `python -m pip install ...` |
 | `ModuleNotFoundError: cv2` | 装 `opencv-python` |
 | 时区/时间不对 | 窗口按北京时间判断（代码固定 UTC+8）；签名依赖时间戳，建议同步 NTP |
