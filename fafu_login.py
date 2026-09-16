@@ -179,13 +179,14 @@ def solve_captcha(cookie=None, ref=None, retry=5, opener=None):
 def third_login_url():
     """问 WeLink 要带真实 state 的 CAS 登录 URL。
 
-    reverse-notes 第 1 步：`state` 由 WeLink 生成（UUID），★不能自己编。
-    它经 service 参数一路传给 CAS，最终在 magcallback 回传给 WeLink，
-    WeLink 靠它把 OAuth code 关联到具体用户——自编 state 会让这一步解析不出
-    用户名（`{"errorCode":"41567","errorMessage":"Get authorization username fail"}`）。
+    reverse-notes 第 1 步：`state` 由 WeLink 生成（UUID），真实浏览器传的就是它，
+    所以这里照做。它经 service 参数一路传给 CAS，最终在 magcallback 原样回传。
 
-    实测：服务端返回的 state 形如 e4a26e53-0e0b-4e2c-9b20-b9cd62552771，
-    而原先代码发的是 random.randint 出来的 10 位数字。
+    ⚠ 不要再写「自编 state 会导致 41567」——2026-09-16 实测证伪：14:10 那次端到端
+    成功用的就是 random.randint 生成的自编 state。改用真实 state 是为了对齐浏览器
+    行为，与 41567 **没有**因果关系（6 次运行的成败对照见 reverse-notes）。
+
+    实测：服务端返回的 state 形如 e4a26e53-0e0b-4e2c-9b20-b9cd62552771。
 
     注意该接口要 JSON body 且 tenantid 传**明文**；用 form 或 RSA 加密都会失败。
     """
@@ -275,8 +276,16 @@ def submit_mfa(service, cas_cookie, code):
          "skipTmpReAuth": "false"}, xhr=True, ref=ref, cookie=cas_cookie)
     if "reAuth_success" not in b: return None, b
     _, _, u, _ = _cas(CAS_BASE + "/login?service=" + urllib.parse.quote(service, safe=""), ref=ref, cookie=cas_cookie)
-    m = re.search(r"[?&]code=([A-Za-z0-9\-_.]{10,})", u)
-    return (m.group(1) if m else None), u
+    # 只截到 '&' 再 unquote，别用字符白名单正则：白名单外的字符处会直接断掉，
+    # 而 code 里的 '+' '/' 经 URL 编码成 '%2B' '%2F'、补位可能写成 '%3D'，
+    # '%' 不在 [A-Za-z0-9\-_.] 内，整个后缀会被吃掉。
+    #
+    # 实测（2026-09-16，3 个真实样本）：code 均为 37 位纯字母数字，在 URL 中原样
+    # 出现、无百分号转义，旧正则本可完整匹配。且 41567 已证实是通用错误
+    # （假 code / 空 code / 已消费 / 截断一位，四种输入响应完全相同），据此反推
+    # 不出原因。故此处按「不做白名单截断」保留，不声称它是 41567 的根因。
+    m = re.search(r"[?&]code=([^&\s]+)", u)
+    return (urllib.parse.unquote(m.group(1)) if m else None), u
 
 def oauth_to_welink(oauth_code):
     """OAuth code → (we_link_token, refresh_token)"""
