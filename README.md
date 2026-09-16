@@ -68,15 +68,24 @@ python3 rootless_checkin.py once       # 立即检查签到
 推荐**守护进程**（自带调度：白天保活 + 21:30 签到 + 补签兜底）：
 
 ```bash
-./run.sh start      # Linux：启动（后台）
-./run.sh status     #        状态
-./run.sh log        #        最近日志
-./run.sh stop       #        停止
-
-run.bat start       # Windows：同样四个子命令
+python run.py start     # 启动
+python run.py status    # 状态（守护 + 会话）
+python run.py log       # 最近日志（加 -f 持续跟随）
+python run.py stop      # 停止
 ```
 
-> 子命令要**分开写**：`./run.sh start | status` 会被 shell 当成管道，而不是「任选其一」。
+三端**就这一个入口**（Windows / macOS / Linux 同一份代码）。POSIX 下已设可执行位，
+也可以直接 `./run.py start`。
+
+> 以前的 `run.bat` / `run.sh` 已删除：两份脚本会各自演化（停止方式、日志行数、
+> status 内容都曾不一致），转发壳省下的那几个字符不值得再养一套行为。
+
+> **Windows 上 `start` 会弹出一个窗口，日志实时打在里面；关掉那个窗口就是停止签到。**
+> 在窗口里拖选文本不会卡住后台：控制台 QuickEdit 已被主动关闭。不关的话，
+> 一旦进入标记模式，写日志的进程会阻塞在 `WriteConsole` 上——daemon 一卡
+> 可能就是几小时，正好错过签到窗口。
+
+> 子命令要**分开写**：`./run.py start | status` 会被 shell 当成管道，而不是「任选其一」。
 
 其他方式（cron / systemd / 任务计划 / Termux）见 [docs/deploy.md](docs/deploy.md)。
 

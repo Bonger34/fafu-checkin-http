@@ -8,11 +8,26 @@
 
 ```bash
 cd /path/to/fafu-checkin-http
-nohup python3 daemon.py >> daemon.log 2>&1 &
-echo $! > daemon.pid          # 记录 PID；停止：kill $(cat daemon.pid)
+python3 run.py start      # 启动（后台）
+python3 run.py status     # 状态（守护进程 + 会话）
+python3 run.py log -f     # 实时日志（Ctrl+C 退出查看，不影响签到）
+python3 run.py stop       # 停止
 ```
 自带调度：白天保活、21:30 签到、失败补签，无需配置 cron。
-也可用管理脚本：`./run.sh start | status | log | stop`。
+
+三端同一份 `run.py`，没有平台专用脚本（`run.sh` / `run.bat` 已删除）。
+Windows 与 POSIX 的区别只有一处：`start` 会开一个可见窗口实时显示日志，
+**关掉窗口即停止**；POSIX 下静默后台运行，看实时日志用 `run.py log -f`。
+
+> `run.py` 自己管 PID 文件与重复启动检查，**不要**再手工 `nohup ... &` 加
+> `echo $! > daemon.pid`：那会把 daemon 写的 JSON 格式 PID 文件覆盖成纯数字，
+> 身份校验随之降级，`run.py stop` 会因为「无法确认这个 PID 是不是本项目的
+> 进程」而拒绝执行（这是有意的，避免 PID 复用误杀）。
+>
+> 确实想手工启动的话，日志交给 daemon 自己写即可，别重定向到 `daemon.log`：
+> ```bash
+> nohup python3 daemon.py > /dev/null 2>&1 &
+> ```
 
 ### 方式 2：cron
 
@@ -81,8 +96,12 @@ python login_once.py
 
 **A. 守护进程**
 ```cmd
-run.bat start | stop | status | log
+python run.py start
+python run.py status
+python run.py log -f
+python run.py stop
 ```
+> `start` 会弹出一个窗口实时显示日志，**关掉窗口即停止签到**。
 
 **B. 任务计划程序（推荐）**
 1. 打开「任务计划程序」→「创建任务」
@@ -126,9 +145,11 @@ termux-setup-storage
 
 | 项 | Linux | Windows |
 |---|---|---|
-| 启动脚本 | `run.sh` | `run.bat` |
+| 启动 | `python3 run.py start` | `python run.py start` |
+| 启动后的样子 | 静默后台；`run.py log -f` 看日志 | 弹出窗口实时显示日志，关窗口即停止 |
 | 定时 | cron / systemd | 任务计划程序 |
-| 后台运行 | `nohup ... &` | `start /min` 或任务计划 |
 | 文件权限 | `chmod 600` | 依赖 NTFS（默认仅当前用户可读） |
 
-> 代码已做跨平台处理（路径用 `os.path.join`，无 POSIX 专属调用）。
+> 启动器只有 `run.py` 一份，平台差异集中在两处：拉起子进程
+> （`CREATE_NEW_CONSOLE` / `start_new_session`）与停止进程
+> （psutil，缺失时退回 `taskkill` / `killpg`）。

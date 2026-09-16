@@ -73,7 +73,12 @@
 - **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`rootless_checkin.py status` 会显示当前退避余量。
 - **响应字段判定统一用 `fafu_lib._has`**：优先按 JSON 键判定，非 JSON（WAF 的 HTML 拦截页）回退子串匹配。不要再用 `'"records"' in body` 这类裸子串判断——服务端改个空格就会静默失效。
 - **PID 文件由 `daemon.py` 自己写**（`_write_pid`/`_clear_pid`），管理脚本只读不写。Windows 上删除文件前必须先关闭句柄，否则 `os.remove` 抛 `PermissionError` 被静默吞掉。
-- **管理脚本只在确认停止后才删 PID 文件**。kill/taskkill 失败却仍删的话，旧实例还在跑但 PID 没了，下次 start 检测不到进程就会重复拉起第二个实例。受限会话下 taskkill 报 Access denied 是常见路径，应按失败分支设计而非当异常处理。
+- **不要再引入 `run.sh` / `run.bat` 这类平台专用启动脚本**。它们曾经各自演化出不一致的行为——停止方式（`taskkill /T /F` vs `kill`）、`log` 行数（全量 vs `tail -30`）、`status` 是否报守护状态、PID 文件由谁写——"统一"最后变成了"两套规范"。现在入口只有 `run.py`，平台差异只允许出现在 `_spawn_daemon` 与 `_stop_proc` 两处。
+- **`run.py start` 之后 daemon 必须活下来**。Windows 走 `CREATE_NEW_CONSOLE`（顺带给用户一个看日志的窗口），POSIX 走 `start_new_session`。这条性质在沙箱里会被进程树回收掩盖，验证时要放在后台任务里做——否则会误判成"启动失败"。
+- **管理脚本只在确认停止后才删 PID 文件**。kill/taskkill 失败却仍删的话，旧实例还在跑但 PID 没了，下次 start 检测不到进程就会重复拉起第二个实例。
+- **PID 身份判据是「启动时刻」，不是「进程名」**。`daemon.pid` 里存 `{pid, started}`，`run.py` 用 psutil 比对进程真实创建时间；只按名字（`python*`）判断会被 PID 复用骗到——daemon 被强杀后 PID 分给别的 python 进程，于是 start 误判「已在运行」拒绝启动，而 stop 会去杀一个完全无关的进程。缺 psutil 时判据降级为「仅看 PID 存在」，此时 **stop 会拒绝执行**而不是冒险。
+- **Windows 上可见窗口必须关掉控制台 QuickEdit**。用户在窗口里拖选文本会让控制台进入标记模式，之后任何写 stdout 的进程都阻塞在 `WriteConsole` 上。daemon 一卡可能就是几小时，正好错过签到窗口——这是「把日志放进可见窗口」必须付的代价，不是可选项。
+- **日志由 daemon 自己写文件**（`FileHandler(encoding="utf-8")`），不靠 shell 重定向。shell 重定向在中文 Windows 下按控制台代码页写，`daemon.log` 会变成 GBK。手工启动时**不要**把 stdout 重定向到 `daemon.log`，否则与 FileHandler 双写。
 - **`signState` 未知值的探测**：当前只处理 `{0,1,2,None}`；遇到其他值会保守尝试签到。若发现新值，记入日志并更新本条。
 
 ## 五、验证
@@ -86,6 +91,7 @@
 | 会话状态 | `python3 rootless_checkin.py status` |
 | 刷新会话 | `python3 rootless_checkin.py refresh` |
 | 立即签到 | `python3 rootless_checkin.py once` |
+| **守护进程管理** | `python3 run.py start / status / log / stop` |
 | 全链路 | `python3 e2e_verify.py` |
 | 调度一轮 | `python3 daemon.py --once` |
 
@@ -94,7 +100,7 @@
 
 ## 六、当前状态与待办
 
-**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径、**真实账号端到端跑通**（登录→滑块→MFA→短信→OAuth→WeLink token→FAFU token→查询任务）。
+**已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径、**真实账号端到端跑通**（登录→滑块→MFA→短信→OAuth→WeLink token→FAFU token→查询任务）、**启动器统一为 `run.py` 单一入口**（`run.sh`/`run.bat` 已删除，Windows 侧带可见日志窗口）。
 
 **待人工**：
 1. 改 CAS 密码（`config.ini` 明文存储）
