@@ -113,8 +113,10 @@ def solve_slider(cookie=None, ref=None, opener=None):
             safe = base64.b64decode(cap["smallImage"])[-16:].decode("latin1")
             big = cv2.imdecode(np.frombuffer(base64.b64decode(cap["bigImage"]), np.uint8), cv2.IMREAD_COLOR)
             sm = cv2.imdecode(np.frombuffer(base64.b64decode(cap["smallImage"]), np.uint8), cv2.IMREAD_UNCHANGED)
+            if big is None or sm is None:          # 解码失败返回 None，后面取 .shape 会崩
+                time.sleep(3); continue
             ys, xs = np.where(sm[:, :, 3] > 0)
-        except (ValueError, KeyError, TypeError, cv2.error):
+        except (ValueError, KeyError, TypeError, AttributeError, cv2.error):
             time.sleep(3); continue
         crop = sm[ys.min():ys.max()+1, xs.min():xs.max()+1]
         r = cv2.matchTemplate(big, crop[:, :, :3], cv2.TM_CCORR_NORMED, mask=crop[:, :, 3])
@@ -174,6 +176,27 @@ def solve_captcha(cookie=None, ref=None, retry=5, opener=None):
 
     return _pick_captcha(fetch, ocr.classification, retry)
 
+def third_login_url():
+    """问 WeLink 要带真实 state 的 CAS 登录 URL。
+
+    reverse-notes 第 1 步：`state` 由 WeLink 生成（UUID），★不能自己编。
+    它经 service 参数一路传给 CAS，最终在 magcallback 回传给 WeLink，
+    WeLink 靠它把 OAuth code 关联到具体用户——自编 state 会让这一步解析不出
+    用户名（`{"errorCode":"41567","errorMessage":"Get authorization username fail"}`）。
+
+    实测：服务端返回的 state 形如 e4a26e53-0e0b-4e2c-9b20-b9cd62552771，
+    而原先代码发的是 random.randint 出来的 10 位数字。
+
+    注意该接口要 JSON body 且 tenantid 传**明文**；用 form 或 RSA 加密都会失败。
+    """
+    url = MAG_BASE + "/FreeProxyForText/wemiddle/api/v1/enterprise/auth/info"
+    st, b, _ = _request(url, data=json.dumps({"tenantid": CFG.tenant_id}),
+                        headers={"Content-Type": "application/json"})
+    d = _json(b, {})
+    if isinstance(d, dict):
+        return (d.get("data") or {}).get("thirdLoginUrl") or None
+    return None
+
 def login(username=None, password=None, send_code=True):
     """完整登录：按需验证 → 密码 → 到达 MFA（默认顺手触发短信）。
 
@@ -182,11 +205,11 @@ def login(username=None, password=None, send_code=True):
     """
     username = username or CFG.username; password = password or CFG.password
     opener, jar = _new_opener()
-    state = str(random.randint(10**9, 10**10))
-    authz = (CAS_BASE + "/oauth2.0/authorize?client_id=998592105751490560&redirect_uri="
-             + urllib.parse.quote("https://api.welink.huaweicloud.com/sso/oauth2/magcallback.html", safe="")
-             + "&response_type=code&state=" + state)
-    _, h, url, hd = _cas(authz, opener=opener)
+    # state 必须用 WeLink 下发的那个（见 third_login_url 的说明），不能自编
+    authz = third_login_url()
+    if not authz:
+        raise SystemExit("❌ 未能获取 thirdLoginUrl（auth/info 失败：检查 tenant_id 与网络）")
+    _, h, url, _ = _cas(authz, opener=opener)
     m_salt = re.search(r'pwdEncryptSalt"[^>]*value="([^"]*)"', h)
     if not m_salt:
         raise SystemExit("❌ 未能从登录页提取 pwdEncryptSalt（页面结构可能已变，或 IP 被拦）")
