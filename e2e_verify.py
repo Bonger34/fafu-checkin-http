@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """端到端衔接验证：refresh_token → WeLink token → authCode → FAFU token → 打卡查询。"""
 import json
-from fafu_config import CFG, mask
+from fafu_config import CFG, mask, setup_console
 from fafu_lib import api, refresh_we_link, fetch_authcode, exchange_fafu_token
+
+setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
 def main():
     CFG.require("device_id", "tenant_id")

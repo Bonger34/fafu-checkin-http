@@ -11,9 +11,25 @@
     CFG.save_state(we_link_token=..., refresh_token=...)   # 自动落盘
     CFG.we_link_token                                      # 读取上次保存的
 """
-import os, json, random, time, configparser, datetime, contextlib
+import os, sys, json, random, time, configparser, datetime, contextlib
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
+
+def setup_console():
+    """让中文 Windows 控制台不再因 emoji 崩栈。
+
+    控制台默认代码页是 GBK，而这些脚本会打印 ✅ / ⚠️ 之类的字符，GBK 编不出来，
+    于是 print 直接抛 UnicodeEncodeError——`e2e_verify.py` 必崩、
+    `rootless_checkin.py status` 必崩。这里只把不可编码的字符降级成 '?'，
+    不改变输出编码，避免控制台出现乱码。
+
+    各入口脚本导入后应立即调用一次。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
 _CFG_PATH = os.path.join(_DIR, "config.ini")
 _STATE_PATH = os.path.join(_DIR, "state.json")
 

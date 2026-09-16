@@ -12,8 +12,10 @@
     nohup python3 daemon.py &    # 后台运行
 """
 import sys, os, time, random, atexit, datetime, logging
-from fafu_config import CFG, TZ, mask
+from fafu_config import CFG, TZ, mask, setup_console
 from fafu_lib import api, ensure_token, query_task, _has
+
+setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
 # ---- 调度参数（可调）----
 KEEPALIVE_SEC   = 20 * 60      # 保活间隔（±20% 抖动）

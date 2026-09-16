@@ -8,8 +8,10 @@
     python3 login_once.py 123456     # 直接传入验证码
 """
 import sys
-from fafu_config import CFG, mask
+from fafu_config import CFG, mask, setup_console
 from fafu_login import login, submit_mfa, oauth_to_welink
+
+setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
 def main():
     CFG.require("username", "password", "device_id", "tenant_id")

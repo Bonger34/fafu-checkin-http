@@ -9,8 +9,10 @@
     python3 rootless_checkin.py once       # 立即检查并签到（幂等）
 """
 import sys, time
-from fafu_config import CFG, fmt_hm, mask
+from fafu_config import CFG, fmt_hm, mask, setup_console
 from fafu_lib import api, ensure_token, query_task, refresh_wait, _has
+
+setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
 def get_fafu_token():
     """取可用 token；失效则用 refresh_token 刷新。
