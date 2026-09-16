@@ -2,6 +2,8 @@
 config.ini
 # 运行时会话态（含 token / cookie / refresh_token）
 state.json
+# 写入过程的锁与临时文件：tmp 在进程被强杀时会残留，且含完整 token 快照
+state.json.*
 *.session
 # 抓包与票据文件
 *.json.bak

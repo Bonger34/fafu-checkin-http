@@ -81,14 +81,16 @@
 | 目的 | 命令 |
 |---|---|
 | 单元测试（离线，不发真实请求） | `python3 -m unittest discover -s tests -v` |
-| 导入检查 | `python3 -c "import fafu_config,fafu_lib,fafu_login,daemon"` |
+| 导入检查（最小依赖） | `python3 -c "import fafu_config,fafu_lib,daemon"` |
+| 导入检查（含登录模块，需 numpy/opencv） | `python3 -c "import fafu_login"` |
 | 会话状态 | `python3 rootless_checkin.py status` |
 | 刷新会话 | `python3 rootless_checkin.py refresh` |
 | 立即签到 | `python3 rootless_checkin.py once` |
 | 全链路 | `python3 e2e_verify.py` |
 | 调度一轮 | `python3 daemon.py --once` |
 
-> 依赖：`pip install -r requirements.txt`。日常签到（token 有效）只需标准库。
+> 依赖：`pip install -r requirements.txt`。日常签到（token 有效）仍需要 `cryptography`
+> ——`fafu_lib` 顶层 import 了它，缺了直接 `ImportError`；`numpy`/`opencv-python` 仅登录需要。
 
 ## 六、当前状态与待办
 

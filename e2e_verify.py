@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
-"""端到端衔接验证：refresh_token → WeLink token → authCode → FAFU token → 打卡查询。"""
-import json
+"""端到端衔接验证：refresh_token → WeLink token → authCode → FAFU token → 打卡查询。
+
+校验一律用显式 SystemExit，不用 assert：assert 在 `python -O` 下会被整条剥掉，
+那样脚本会一路「成功」跑到底，给出完全错误的结论。
+"""
 from fafu_config import CFG, mask, setup_console
-from fafu_lib import api, refresh_we_link, fetch_authcode, exchange_fafu_token
+from fafu_lib import api, refresh_we_link, fetch_authcode, exchange_fafu_token, _has, _json
 
 setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
@@ -10,23 +13,33 @@ def main():
     CFG.require("device_id", "tenant_id")
     log = lambda n, m: print(f"[{n}] {m}")
     rt = CFG.refresh_token
-    if not rt: raise SystemExit("❌ 无 refresh_token，请先运行 login_once.py")
+    if not rt:
+        raise SystemExit("❌ 无 refresh_token，请先运行 login_once.py")
+
     log(1, "用 refresh_token 刷新 WeLink token ...")
     wt, rt2, st, body = refresh_we_link(rt)
-    assert wt, f"刷新失败({st}): {body[:150]}"
+    if not wt:
+        raise SystemExit(f"❌ 刷新失败({st}): {body[:150]}")
+
     log(2, f"WeLink token: {mask(wt, 8)}")
     log(3, "换 authCode ...")
     ac, st, _ = fetch_authcode(wt)
-    assert ac, f"authCode 失败({st})"
+    if not ac:
+        raise SystemExit(f"❌ authCode 失败({st})")
+
     log(4, f"authCode: {mask(ac, 10)}")
     log(5, "换 FAFU token ...")
     tok, st, msg = exchange_fafu_token(ac)
-    assert tok, f"FAFU 登录失败({st}): {str(msg)[:150]}"
+    if not tok:
+        raise SystemExit(f"❌ FAFU 登录失败({st}): {str(msg)[:150]}")
+
     log(6, f"FAFU token: {mask(tok, 10)}")
     log(7, "查询任务（仓库同款 api）...")
     st, resp = api("sign_in/student/my/page", "rows=1&pageNum=1", tok)
-    assert '"records"' in resp, f"查询失败({st}): {resp[:120]}"
-    recs = json.loads(resp).get("records") or []
+    if not _has(resp, "records"):
+        raise SystemExit(f"❌ 查询失败({st}): {resp[:120]}")
+
+    recs = _json(resp, {}).get("records") or []
     if not recs:
         raise SystemExit("❌ 查询成功但无任务记录")
     r0 = recs[0]

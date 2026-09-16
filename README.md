@@ -35,12 +35,13 @@
 
   | 库 | 用途 | 日常签到是否必需 |
   |---|---|---|
-  | `cryptography` | AES 加密（登录）、RSA-OAEP（租户 ID） | token 有效时不需；刷新时需要 |
+  | `cryptography` | AES 加密（登录）、RSA-OAEP（租户 ID） | **始终需要**（`fafu_lib` 顶层导入） |
   | `opencv-python` | 滑块缺口定位 | 仅首次登录需要 |
   | `numpy` | 滑块图像处理 | 仅首次登录需要 |
   | `ddddocr` | 图形验证码 OCR（可选） | 仅当服务端要求图形码时需要 |
 
-  > 已登录且 token 有效时，纯签到只需 Python 标准库。
+  > 已登录且 token 有效时，日常签到只需 `cryptography`——即便不触发刷新也要装上，
+  > 因为 `fafu_lib` 在模块顶层就 import 了它，缺了会直接 `ImportError`。
   > CAS 会**按风控**在「滑块」与「图形码」之间切换；只有被要求图形码时才用得上 `ddddocr`，
   > 未安装时脚本会明确提示改用手机 App 扫码登录，而不是抛堆栈。
 
@@ -67,9 +68,15 @@ python3 rootless_checkin.py once       # 立即检查签到
 推荐**守护进程**（自带调度：白天保活 + 21:30 签到 + 补签兜底）：
 
 ```bash
-./run.sh start | status | log | stop        # Linux
-run.bat start | status | log | stop         # Windows
+./run.sh start      # Linux：启动（后台）
+./run.sh status     #        状态
+./run.sh log        #        最近日志
+./run.sh stop       #        停止
+
+run.bat start       # Windows：同样四个子命令
 ```
+
+> 子命令要**分开写**：`./run.sh start | status` 会被 shell 当成管道，而不是「任选其一」。
 
 其他方式（cron / systemd / 任务计划 / Termux）见 [docs/deploy.md](docs/deploy.md)。
 
