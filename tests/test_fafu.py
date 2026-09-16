@@ -184,6 +184,14 @@ class PureFunctionTest(unittest.TestCase):
         self.assertTrue(masked.startswith("2_abcdef"))
         self.assertNotIn("123456", masked)
 
+    def test_cookie_token_handles_empty_value(self):
+        """token 值为空时返回 None —— 原写法会在 .group(1) 处崩栈（真实踩过）"""
+        self.assertEqual(fafu_lib.cookie_token(["token=abc; Path=/"]), "abc")
+        self.assertEqual(fafu_lib.cookie_token(["route=x", "token=z9; Max-Age=7200"]), "z9")
+        self.assertIsNone(fafu_lib.cookie_token(["token=; Path=/; HttpOnly"]))
+        self.assertIsNone(fafu_lib.cookie_token([]))
+        self.assertIsNone(fafu_lib.cookie_token(None))
+
     def test_config_rejects_typo(self):
         """拼错的会话态键应明确报错，而非静默返回空串"""
         with self.assertRaises(AttributeError):
