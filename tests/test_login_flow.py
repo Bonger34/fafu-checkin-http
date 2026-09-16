@@ -135,5 +135,39 @@ class CasBinaryTest(unittest.TestCase):
         self.assertIsInstance(body, str)
 
 
+@_NEED_DEPS
+class PickCaptchaTest(unittest.TestCase):
+    """图形验证码的长度过滤：固定 4 位，长度不符应换图而不是提交"""
+
+    def test_accepts_matching_length(self):
+        calls = []
+
+        def fetch():
+            calls.append(1)
+            return b"img"
+
+        self.assertEqual(fafu_login._pick_captcha(fetch, lambda i: "a1b2"), "a1b2")
+        self.assertEqual(len(calls), 1, "合格结果不应重复取图")
+
+    def test_retries_until_length_matches(self):
+        seq = iter(["abc", "a1b2c3", "  x9Y7  "])
+        self.assertEqual(fafu_login._pick_captcha(lambda: b"img", lambda i: next(seq)), "x9Y7")
+
+    def test_gives_up_and_returns_none(self):
+        """始终不合格时应返回 None，由调用方决定重试或回退"""
+        self.assertIsNone(fafu_login._pick_captcha(lambda: b"img", lambda i: "abc", retry=3))
+
+    def test_skips_empty_image(self):
+        seq = iter([None, b"img"])
+        self.assertEqual(fafu_login._pick_captcha(lambda: next(seq), lambda i: "a1b2"), "a1b2")
+
+    def test_recognizer_exception_does_not_abort(self):
+        """识别抛异常应被吞掉并继续重试，而不是把登录流程整个打断"""
+        def boom(img):
+            raise ValueError("model error")
+
+        self.assertIsNone(fafu_login._pick_captcha(lambda: b"img", boom, retry=2))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

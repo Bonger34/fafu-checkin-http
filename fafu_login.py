@@ -112,6 +112,50 @@ def solve_slider(cookie=None, ref=None):
         time.sleep(2)
     return False
 
+_CAPTCHA_LEN = 4          # 图形验证码固定 4 位
+
+def _pick_captcha(fetch, recognize, retry=5):
+    """取图 → 识别 → 长度校验；长度不符就换图重试，返回合格文本或 None。
+
+    为什么以长度为准：实测 ddddocr 漏字时置信度仍有 0.99+（比部分正确样本还高），
+    只有长度能发现漏识别。换图重取不消耗登录次数，先在这里滤掉最明显的不合格结果。
+    """
+    for _ in range(retry):
+        img = fetch()
+        if not img:
+            continue
+        try:
+            text = (recognize(img) or "").strip()
+        except Exception:
+            text = ""
+        if len(text) == _CAPTCHA_LEN:
+            return text
+        time.sleep(0.3)
+    return None
+
+def solve_captcha(cookie=None, ref=None, retry=5):
+    """图形验证码 OCR（captchaSwitch == "1" 时使用）。
+
+    ddddocr 是可选依赖（会带入 onnxruntime，体积较大），仅此路径需要；
+    日常签到与滑块路径都不依赖它。
+    """
+    try:
+        import ddddocr
+    except ImportError:
+        raise SystemExit("❌ 未安装 ddddocr，无法识别图形验证码：\n"
+                         "   pip install ddddocr\n"
+                         "   也可稍后重试（风控状态会变化）或改用手机 App 扫码登录")
+
+    ocr = ddddocr.DdddOcr(show_ad=False)
+
+    def fetch():
+        ts = int(time.time() * 1000)
+        st, raw, _, _ = _cas(f"{CAS_BASE}/getCaptcha.htl?{ts}", xhr=True,
+                             cookie=cookie, ref=ref, binary=True)
+        return raw if st == 200 and raw else None
+
+    return _pick_captcha(fetch, ocr.classification, retry)
+
 def login(username=None, password=None):
     """完整登录：按需验证 → 密码 → 返回 (service, cas_cookie)，此时应到达 MFA 页。"""
     username = username or CFG.username; password = password or CFG.password
@@ -132,8 +176,10 @@ def login(username=None, password=None):
     captcha = ""
     if _need_captcha(username, cookies, url):
         if switch == "1":
-            raise SystemExit("❌ 服务端当前要求图形验证码（captchaSwitch=1），本版本尚未支持 OCR。\n"
-                             "   风控状态会随时间变化，可稍后重试；也可改用手机 App 扫码登录。")
+            captcha = solve_captcha(cookies, url) or ""
+            if not captcha:
+                raise SystemExit("❌ 图形验证码识别失败（已多轮重试）。风控状态会变化，"
+                                 "可稍后重试；也可改用手机 App 扫码登录。")
         if not _to_slider(cookies, url):
             raise SystemExit("❌ 无法切换到滑块验证（toSliderCaptcha 未返回滑块页面）")
         if not solve_slider(cookies, url):

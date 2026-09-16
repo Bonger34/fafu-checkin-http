@@ -3,8 +3,13 @@
 
 cryptography>=3.4      # AES 加密（登录）、RSA-OAEP（租户 ID）
 numpy>=1.19            # 滑块图像数组处理
-opencv-python>=4.5     # 滑块验证码识别（仅首次登录需要）
+opencv-python>=4.5     # 滑块缺口定位（仅首次登录需要）
+
+# 可选：图形验证码 OCR。CAS 会按风控在「滑块」与「图形码」之间切换，
+# 只有被要求图形码时才用得上（会带入 onnxruntime，体积较大）。
+ddddocr>=1.4
 
 # 说明：
 #  - 日常签到（token 有效时）仅需 cryptography
-#  - 仅当 token 失效触发刷新时用 cryptography；滑块识别仅 login_once.py 需要
+#  - 登录（login_once.py）需要 numpy + opencv-python；若服务端要求图形码，
+#    还需要 ddddocr，否则脚本会提示改用手机 App 扫码登录
