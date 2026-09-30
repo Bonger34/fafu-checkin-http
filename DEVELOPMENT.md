@@ -102,6 +102,13 @@
 > 依赖：`pip install -r requirements.txt`。日常签到（token 有效）仍需要 `cryptography`
 > ——`fafu_lib` 顶层 import 了它，缺了直接 `ImportError`；`numpy`/`opencv-python` 仅登录需要。
 
+**测试覆盖**：`tests/` 下四个文件全部离线，不发任何真实请求。
+
+- **`test_fafu.py`** —— 核心逻辑：刷新退避、刷新响应缺字段、state 并发写、响应判定、窗口边界、PID 文件生命周期。
+- **`test_run.py`** —— `run.py` 管理脚本：PID 文件解析、身份判定（含防 PID 复用）、子命令分派。
+- **`test_flow.py`** —— 7 条完整业务链路的离线演练：只把最底层网络出口 `fafu_lib._request` 换成假实现，签名、JSON 解析、会话保障、刷新退避、签到决策全部走真实代码；覆盖「token 失效 → 自动刷新 → 签到成功」「刷新失败 → 退避不空转」等路径。
+- **`test_login_flow.py`** —— CAS 登录链的三个关键前置调用（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）、滑块轨迹的累计语义、图形码 OCR 的长度过滤，以及 `login_once.py` 的收尾守卫（拿不到 `refresh_token` 时必须中止，不写入一份续不了期的会话态）。未装 numpy/opencv 时该组自动跳过。
+
 ## 六、当前状态与待办
 
 **已完成**：登录链复现、设备锁、滑动续期、守护调度、跨平台（Linux/Windows/Termux）、四轮代码检查（29 项修复）、离线回归测试 `tests/`、刷新失败退避、state 并发写保护、PID 文件防重复启动、登录链前置调用修复（`checkNeedCaptcha`/`toSliderCaptcha`）、图形验证码 OCR 路径、**真实账号端到端跑通**（登录→滑块→MFA→短信→OAuth→WeLink token→FAFU token→查询任务）、**启动器统一为 `run.py` 单一入口**（`run.sh`/`run.bat` 已删除，Windows 侧带可见日志窗口）。
