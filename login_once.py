@@ -28,6 +28,12 @@ def main():
     print("[4] 换取 WeLink token ...")
     wt, rt, st, body = oauth_to_welink(oauth)
     if not wt: raise SystemExit(f"❌ 换取失败({st}): {str(body)[:150]}")
+    if not rt:
+        # refresh_token 是登录的核心产出：没有它就无法自动续期。此时写 state
+        # 只会留下一份「看起来已登录、实则续不了期」的会话态，而下面那句
+        # 「已保存」还会把这件事说反——所以宁可在这里直接失败。
+        raise SystemExit("❌ 登录响应未包含 refresh_token，无法自动续期"
+                         "（接口可能已变更，请重试或检查 docs/reverse-notes.md）")
     CFG.save_state(we_link_token=wt, refresh_token=rt)
     print("✅ 登录成功！refresh_token 已保存（持续运行可无限续期，无需再收短信）")
     print("   后续运行： python3 rootless_checkin.py refresh")

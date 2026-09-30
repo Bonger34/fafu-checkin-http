@@ -111,4 +111,4 @@ python3 -m unittest discover -s tests -v    # 离线运行，不发任何真实�
 
 `tests/test_flow.py` 另做 7 条完整业务链路的离线演练：只把最底层的网络出口换成假实现，签名、JSON 解析、会话保障、刷新退避、签到决策全部走真实代码，可覆盖「token 失效 → 自动刷新 → 签到成功」「刷新失败 → 退避不空转」等路径。
 
-`tests/test_login_flow.py` 覆盖 CAS 登录链的三个关键前置步骤（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）、滑块轨迹的累计语义，以及图形码 OCR 的长度过滤。未装 numpy/opencv 时该组自动跳过。
+`tests/test_login_flow.py` 覆盖 CAS 登录链的三个关键前置步骤（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）、滑块轨迹的累计语义、图形码 OCR 的长度过滤，以及 `login_once.py` 的收尾守卫（拿不到 refresh_token 时必须中止，而不是写下一份续不了期的会话态）。未装 numpy/opencv 时该组自动跳过。

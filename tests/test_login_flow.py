@@ -5,14 +5,18 @@
   1. checkNeedCaptcha.htl 是提交前必经一步，缺了它后续验证必然失败
   2. toSliderCaptcha.htl 负责把会话切到滑块模式
   3. tracks 的 a/b/c 都是「累计值」，c 必须单调不减
+外加 login_once 的收尾守卫：拿不到 refresh_token 时必须中止，
+而不是写下一份无法续期的会话态、却照样报告「登录成功」。
 
 未安装 numpy/opencv（fafu_login 的依赖）时整组跳过。
 """
-import os, sys, random, unittest
+import os, sys, json, random, shutil, tempfile, unittest
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+import fafu_config
 
 fafu_login = None
 _IMPORT_ERR = ""
@@ -167,6 +171,74 @@ class PickCaptchaTest(unittest.TestCase):
             raise ValueError("model error")
 
         self.assertIsNone(fafu_login._pick_captcha(lambda: b"img", boom, retry=2))
+
+
+@_NEED_DEPS
+class LoginOnceGuardTest(unittest.TestCase):
+    """login_once 的收尾守卫：拿不到 refresh_token 时必须中止。
+
+    回归背景：oauth_to_welink 在响应缺 refresh_token 时返回 None，而 main()
+    只检查了 we_link_token。于是脚本会写下一份无法续期的会话态（refresh_token
+    落成 null），却照样打印「✅ 登录成功！refresh_token 已保存」——用户要等
+    token 过期才会发现，中途没有任何提示。
+
+    登录链的三个网络协作者全部替换，只验证 main() 的收尾判定。
+    """
+
+    ENV = {"FAFU_USERNAME": "u", "FAFU_PASSWORD": "p",
+           "FAFU_DEVICE_ID": "d", "FAFU_TENANT_ID": "t"}
+
+    def setUp(self):
+        import login_once
+        self.mod = login_once
+        self.tmp = tempfile.mkdtemp(prefix="fafu-login-")
+        self._orig_state = fafu_config._STATE_PATH
+        fafu_config._STATE_PATH = os.path.join(self.tmp, "state.json")
+        # 用环境变量喂凭据：既不读 config.ini 里的真实配置，也不依赖该文件存在
+        self._env = {k: os.environ.get(k) for k in self.ENV}
+        os.environ.update(self.ENV)
+
+        self._orig = {n: getattr(login_once, n) for n in
+                      ("CFG", "login", "submit_mfa", "oauth_to_welink")}
+        login_once.CFG = fafu_config.Config()
+        # 三个替身都用 *a/**k：不写死参数名与个数，签名变化时不会静默失效
+        login_once.login = lambda *a, **k: ("SVC", "COOKIE")
+        login_once.submit_mfa = lambda *a, **k: ("OAUTH", "info")
+        self._argv = sys.argv
+        sys.argv = ["login_once.py", "123456"]       # 传验证码，绕开 input()
+
+    def tearDown(self):
+        for name, fn in self._orig.items():
+            setattr(self.mod, name, fn)
+        fafu_config._STATE_PATH = self._orig_state
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        sys.argv = self._argv
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _state(self):
+        with open(fafu_config._STATE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_missing_refresh_token_aborts_before_writing(self):
+        """响应缺 refresh_token → 中止，且不得落盘任何会话态"""
+        self.mod.oauth_to_welink = lambda *a, **k: ("WT", None, 200, "{}")
+        with self.assertRaises(SystemExit) as cm:
+            self.mod.main()
+        self.assertIn("refresh_token", str(cm.exception))
+        self.assertFalse(os.path.exists(fafu_config._STATE_PATH),
+                         "写入了无法续期的会话态")
+
+    def test_normal_path_saves_both_tokens(self):
+        """正常路径不受影响：两个 token 都落盘"""
+        self.mod.oauth_to_welink = lambda *a, **k: ("WT", "RT", 200, "{}")
+        self.mod.main()
+        st = self._state()
+        self.assertEqual(st["refresh_token"], "RT")
+        self.assertEqual(st["we_link_token"], "WT")
 
 
 if __name__ == "__main__":
