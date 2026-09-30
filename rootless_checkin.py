@@ -8,9 +8,9 @@
     python3 rootless_checkin.py refresh    # 用 refresh_token 刷新会话
     python3 rootless_checkin.py once       # 立即检查并签到（幂等）
 """
-import sys, time
+import sys
 from fafu_config import CFG, fmt_hm, mask, setup_console
-from fafu_lib import api, ensure_token, query_task, refresh_wait, _has
+from fafu_lib import api, ensure_token, refresh_wait, sign_once, SignStatus, _has
 
 setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
@@ -49,26 +49,23 @@ def cmd_refresh():
     print("✅ 会话有效，打卡 token:", mask(tok, 10))
 
 def cmd_once():
+    """立即检查并签到（幂等）。
+
+    判定与提交都在 fafu_lib.sign_once 后面；这里只负责把结果打成
+    人类可读的三行：任务、窗口、结论。
+    """
     tok = get_fafu_token()
-    r0 = query_task(tok, rows=5)
-    if not r0: raise SystemExit("❌ 查询任务失败（token 或网络问题）")
-    rid, name = r0.get("id"), r0.get("name", "签到")
-    bt, et = r0.get("beginTime"), r0.get("endTime")
-    dl = r0.get("supplementEndTime") or et                  # 补签截止，缺失时用 endTime 兜底
-    if rid is None or bt is None or et is None:
-        raise SystemExit(f"❌ 任务记录字段异常：{list(r0)[:6]}")
-    ss = (r0.get("signInStudent") or {}).get("signState")
-    now = int(time.time()) * 1000
-    print(f"任务: {name} id={rid} signState={ss}")
-    print(f"窗口: {fmt_hm(bt)}~{fmt_hm(et)} 补签至 {fmt_hm(dl)}")
-    if ss is not None and ss != 0:
-        print(f"→ 已签到（状态{ss}），无需操作"); return
-    if ss is None:
-        print("→ 签到状态未知(signInStudent 缺失)，保守尝试签到")
-    if not (bt <= now <= dl):
-        print("→ 不在签到时段"); return
-    st2, r2 = api(f"sign_in/{rid}/student/sign", f"lng={CFG.lng}&lat={CFG.lat}", tok)
-    print("签到结果:", "✅ 成功" if _has(r2, "timestamp") else f"❌ {st2} {r2[:120]}")
+    out = sign_once(tok)
+    if out.task:
+        t = out.task
+        # endTime 可能缺失（那时是凭补签截止在签），别拿 None 去格式化
+        end = fmt_hm(t.end_ms) if t.end_ms else "--:--"
+        print(f"任务: {t.name} id={t.id} signState={t.sign_state}")
+        print(f"窗口: {fmt_hm(t.begin_ms)}~{end} 补签至 {fmt_hm(t.deadline_ms)}")
+    print("→", out.detail)
+    # 失败要让 cron / 脚本能从退出码看出来——只打 stdout 会静默「成功」
+    if out.status in (SignStatus.QUERY_FAILED, SignStatus.BAD_RECORD, SignStatus.SUBMIT_FAILED):
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"

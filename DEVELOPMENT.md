@@ -1,7 +1,7 @@
 # 开发文档
 
 > **面向**：接手本项目的开发者 / AI agent。
-> 使用见 [README](README.md) · 逆向细节见 [docs/reverse-notes.md](docs/reverse-notes.md) · 部署见 [docs/deploy.md](docs/deploy.md)。
+> 使用见 [README](README.md) · 领域词汇见 [CONTEXT.md](CONTEXT.md) · 逆向细节见 [docs/reverse-notes.md](docs/reverse-notes.md) · 部署见 [docs/deploy.md](docs/deploy.md)。
 > ⚠️ 仅供学习研究，使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
 
 ## 一、定位：去哪改什么
@@ -9,7 +9,7 @@
 | 要改的 | 文件 |
 |---|---|
 | 配置 / 会话态 / 公共常量 / 时间 / 脱敏 | `fafu_config.py` |
-| 签名 / HTTP / 限流 / 登录链后半 / 会话保障 | `fafu_lib.py` |
+| 签名 / HTTP / 限流 / 登录链后半 / 会话保障 / **一轮签到** | `fafu_lib.py` |
 | CAS 登录（滑块 / 密码 / MFA / OAuth） | `fafu_login.py` |
 | 首次登录入口 | `login_once.py` |
 | 日常命令（status / refresh / once） | `rootless_checkin.py` |
@@ -38,7 +38,8 @@
     → fafu_lib.ensure_token()
         ├ 本地 token 有效 → 复用（1 次请求验证）
         └ 失效 → refresh_we_link → fetch_authcode → exchange_fafu_token
-    → fafu_lib.query_task() → 判断 signState → api(.../student/sign)
+    → fafu_lib.sign_once(token)      一轮签到：查询 → 判定 → 需要时提交
+        └ 判定与提交只此一处；两个调用方各自只负责取 token 与措辞
 ```
 
 **模块职责**（每块只做一件事）：
@@ -46,7 +47,7 @@
 | 模块 | 职责 |
 |---|---|
 | `fafu_config` | 配置加载 + 会话态持久化 + 公共常量 + `TZ`/`mask`/`fmt_hm` |
-| `fafu_lib` | 签名、HTTP（限流/退避/安全 JSON）、登录链后半、`ensure_token` |
+| `fafu_lib` | 签名、HTTP（限流/退避/安全 JSON）、登录链后半、`ensure_token`、`sign_once`（一轮签到） |
 | `fafu_login` | CAS 登录前半（滑块/密码/MFA/OAuth） |
 
 ## 三、不变量（改代码前必读）
@@ -56,7 +57,7 @@
 1. **`deviceId` 精确匹配且区分大小写**。服务端做字符串比对（空值、末位差 1、大写均被拒）。→ `fafu_lib.exchange_fafu_token`
 2. **外发请求间隔 ≥2s**。实测 <1s 连发触发 WAF（端点级，冷却 15–20 分钟）。→ `fafu_lib.MIN_GAP` / `_throttle`
 3. **签到窗口按北京时间（UTC+8）**。不能用系统时区，否则 UTC 机器把 21:30 算成 13:30。→ `fafu_config.TZ` / `daemon.now`
-4. **`signState is None` 时保守签到**。只有明确 `!= 0` 才算已签；`None` 视为未知并尝试签到（幂等，宁可多签不可漏签）。→ `daemon.try_sign`
+4. **`signState is None` 时保守签到**。只有明确 `!= 0` 才算已签；`None` 视为未知并尝试签到（幂等，宁可多签不可漏签）。→ `fafu_lib.sign_once`
 5. **`configparser(interpolation=None)`**。否则密码含 `%` 抛 `InterpolationSyntaxError`。→ `fafu_config.Config.__init__`
 6. **token 落日志前脱敏**。用 `fafu_config.mask`，避免学号/设备/token 明文。→ `daemon` / `rootless_checkin` / `e2e_verify`
 7. **会话态写入必须「加锁 + 增量合并 + 原子落盘」**。三者缺一不可：锁让「读—改—写」跨进程串行；**增量合并**保证不拿陈旧内存快照覆盖别的进程刚写的键（`refresh_token` 是唯一的重登凭证，被抹掉就得重新短信登录）；`PID+随机数` 的 tmp 再 `os.replace` 保证不写坏文件。→ `fafu_config.save_state` / `_state_lock`
@@ -68,7 +69,7 @@
 
 ## 四、约定与坑
 
-- **`signState` 语义**（无官方文档，已由实测比对确证）：`0`=未签；`1`=已签到；`2`=请假；缺失=未知。字段旁证：已签到的记录带 `signTime` 与 `lng`/`lat`，请假记录这三项全为 `null`——该判据不依赖数字取值，比 `signState` 本身更硬。当前只处理 `{0,1,2,None}`，遇到其他值一律保守尝试签到（见不变量 4）；若发现新值，记入日志并更新本条。
+- **`signState` 语义**（无官方文档，已由实测比对确证）：`0`=未签；`1`=已签到；`2`=请假；缺失=未知。字段旁证：已签到的记录带 `signTime` 与 `lng`/`lat`，请假记录这三项全为 `null`——该判据不依赖数字取值，比 `signState` 本身更硬。当前只处理 `{0,1,2,None}`，遇到其他值一律保守尝试签到（见不变量 4）；若发现新值，记入日志并更新本条。取值判定集中在 `fafu_lib.sign_once`——两个调用方都不要自己再判一遍（这条曾经漂移过：同一份兜底逻辑在两处用了不同的完整性校验字段）。
 - **`refresh_token` 滑动续期**：每次刷新重置 30 天（实测 `refresh_expires_in` 恒 `2592008`s）。持续运行永不过期；仅连续 30 天未运行才需重登。**服务端通常不换发新值**——同一次刷新前后取到的是同一个 token，所以响应缺该字段时 `refresh_we_link` 必须沿用传入值，绝不能返回 `None`（会被调用方写回 state 抹掉唯一凭证）。
 - **`authCode` 一次性**：用完即失效，不可缓存。
 - **滑块不走全局限流**：`fafu_login._cas` 用独立请求（需 0.3s 级时序）；仅登录时触发，频率低。

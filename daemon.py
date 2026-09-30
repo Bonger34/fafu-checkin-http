@@ -13,7 +13,7 @@
 """
 import sys, os, time, random, atexit, json, datetime, logging
 from fafu_config import CFG, TZ, mask, setup_console
-from fafu_lib import api, ensure_token, query_task, _has
+from fafu_lib import ensure_token, query_task, sign_once, SignStatus
 
 setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
@@ -154,31 +154,29 @@ def in_supp_window(t):
     return b < t <= e
 
 def try_sign():
-    """窗口内检查并签到；返回 True 表示已签到（含服务端已签的情况）"""
+    """窗口内检查并签到；返回 True 表示今日任务已了结（含服务端已签 / 请假）
+
+    判定与提交都在 fafu_lib.sign_once 后面，这里只剩三件事：取 token、
+    按结局选日志级别、把「今日了结」报给 loop 记账。
+    """
     tok = ensure_token(cooldown=REFRESH_COOLDOWN)
     if not tok:
         log.error("无可用 token，跳过本轮"); return False
-    r0 = query_task(tok)
-    if not r0:
-        log.warning("查询任务失败"); return False
-    ss = (r0.get("signInStudent") or {}).get("signState")
-    name = r0.get("name", "签到")
-    rid, bt = r0.get("id"), r0.get("beginTime")
-    dl = r0.get("supplementEndTime") or r0.get("endTime")   # 补签截止，缺失时用 endTime 兜底
-    if rid is None or bt is None or dl is None:
-        log.warning("任务记录缺少 id/时间字段，跳过：%s", list(r0)[:6]); return False
-    if ss is not None and ss != 0:                          # 明确已签到（state=1/2）
-        log.info("[%s] 已签到(状态%s)，无需操作", name, ss); return True
-    if ss is None:
-        log.warning("[%s] 签到状态未知(signInStudent 缺失)，保守尝试签到", name)
-    t = now(); n = int(t.timestamp() * 1000)
-    if not (bt <= n <= dl):
-        log.info("[%s] 不在签到时段", name); return False
-    st, r = api(f"sign_in/{rid}/student/sign", f"lng={CFG.lng}&lat={CFG.lat}", tok)
-    if _has(r, "timestamp"):
-        kind = "补签" if in_supp_window(t) else "签到"
-        log.info("✅ %s成功 [%s] %s", kind, name, hm()); return True
-    log.warning("签到失败(%s): %s", st, r[:100]); return False
+
+    out = sign_once(tok)
+    name = out.task.name if out.task else "签到"
+    if out.status is SignStatus.SIGNED:
+        # 「补签 / 签到」按当前时刻区分，属调度概念，留在这一侧
+        kind = "补签" if in_supp_window(now()) else "签到"
+        if out.task and out.task.sign_state is None:
+            # 状态缺失时是保守提交：这条信号要留在日志里（它是服务端字段变动的征兆）
+            log.warning("[%s] 签到状态未知(signInStudent 缺失)，已保守提交", name)
+        log.info("✅ %s成功 [%s] %s", kind, name, hm())
+    elif out.status in (SignStatus.ALREADY_SIGNED, SignStatus.NOT_IN_WINDOW):
+        log.info("[%s] %s", name, out.detail)
+    else:
+        log.warning("[%s] %s", name, out.detail)
+    return out.completed
 
 def seconds_until_next(signed_today=False):
     """计算下次唤醒间隔：区分保活期 / 窗口期 / 窗口边界"""

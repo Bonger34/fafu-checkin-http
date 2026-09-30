@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """公共库：签名、HTTP、登录链、限流退避。凭据全部来自 fafu_config。"""
-import os, json, time, random, string, base64, hashlib, re, urllib.request, urllib.parse, urllib.error
+import os, json, time, random, string, base64, hashlib, re, enum, urllib.request, urllib.parse, urllib.error
+from typing import NamedTuple, Optional
 from fafu_config import CFG, CLIENT_SECRET, SCHOOL_NO, API_BASE, MAG_BASE, USER_AGENT
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes, serialization
@@ -246,3 +247,98 @@ def query_task(token, rows=5):
         if ss is None or ss == 0:            # 未签到（含状态未知）优先
             return r
     return recs[0]
+
+
+# ---- 一轮签到：判定 + 提交（daemon 与 rootless_checkin 共用同一个 interface）----
+
+class SignStatus(str, enum.Enum):
+    """一轮签到的结局。
+
+    用 Enum 而非裸字符串：调用方要按结局分日志级别与输出，拼错一个字符串
+    就是静默失效（与「CFG 属性拼错抛 AttributeError」同一条约定）。
+    取 str 子类是为了打进日志时仍是可读的字符串。
+    """
+    SIGNED = "signed"                  # 本次提交成功
+    ALREADY_SIGNED = "already_signed"  # 服务端已签，或已请假
+    NOT_IN_WINDOW = "not_in_window"    # 不在签到时段
+    BAD_RECORD = "bad_record"          # 任务记录缺少判定所需字段
+    QUERY_FAILED = "query_failed"      # 查不到任务
+    SUBMIT_FAILED = "submit_failed"    # 提交被服务端拒绝
+
+
+class TaskInfo(NamedTuple):
+    """被处理的那条任务，供调用方展示。
+
+    只带展示与判定需要的字段：把原始响应 dict 透出去，等于让每个调用方
+    各自再实现一遍「哪个字段缺失时用哪个兜底」——那正是本次收敛要消灭的缝隙。
+    """
+    name: str
+    id: int
+    sign_state: object          # 0 未签 / 1 已签到 / 2 请假 / None 未知
+    begin_ms: int
+    end_ms: Optional[int]       # endTime 可缺：校验放宽后仍能凭补签截止签到
+    deadline_ms: int            # 补签截止（supplementEndTime，缺失时已回退 endTime）
+
+
+class SignOutcome(NamedTuple):
+    """一轮签到的结果。
+
+    completed —— 今日任务是否已了结。daemon 靠它维护「今天签过了」的记账；
+                 「不在时段」「提交失败」都不算了结，窗口内还要再试。
+    status    —— 可靠的分支依据（日志级别、措辞都按它选）。
+    detail    —— 结论句成品，不含任务名前缀（那在 task.name 里），
+                 调用方直接 log/print 即可。
+    task      —— 查询失败时为 None。
+    """
+    completed: bool
+    status: SignStatus
+    detail: str
+    task: Optional[TaskInfo] = None
+
+
+def sign_once(token):
+    """跑一轮签到：查询任务 → 判定 → 需要时提交。返回 SignOutcome。
+
+    token 由调用方提供——这个 module 不管会话从哪来（那是 ensure_token），
+    也不管输出到哪去（daemon 记日志、CLI 打终端）。
+
+    判定依据逐条都有实测或回归支撑：
+      · signState 非 0 → 已签到或已请假，今日了结，不重复提交
+      · signState 缺失 → 视为未知并保守提交（不变量 4：宁可多签不可漏签）
+      · 当前时间不在 [beginTime, 补签截止] 内 → 跳过，且不算今日了结
+      · 完整性校验看的是**回退之后**的补签截止，与
+        `dl = supplementEndTime or endTime` 的兜底意图保持一致
+      · 提交成败以响应里是否有 timestamp 判定，不做子串猜测
+    """
+    r0 = query_task(token, 5)
+    if not r0:
+        return SignOutcome(False, SignStatus.QUERY_FAILED, "查询任务失败（token 或网络问题）")
+
+    ss = (r0.get("signInStudent") or {}).get("signState")
+    name = r0.get("name") or "签到"
+    rid, bt = r0.get("id"), r0.get("beginTime")
+    et = r0.get("endTime")
+    dl = r0.get("supplementEndTime") or et          # 补签截止，缺失时用 endTime 兜底
+    if rid is None or bt is None or dl is None:
+        return SignOutcome(False, SignStatus.BAD_RECORD,
+                           "任务记录缺少 id/时间字段，跳过：%s" % list(r0)[:6])
+
+    task = TaskInfo(name, rid, ss, bt, et, dl)
+
+    if ss is not None and ss != 0:                  # 明确已签到或已请假
+        # 2 是请假，与「已签到」同样意味着今日了结，但措辞不能混为一谈
+        what = "请假" if ss == 2 else "已签到（状态%s）" % ss
+        return SignOutcome(True, SignStatus.ALREADY_SIGNED, "%s，无需操作" % what, task)
+
+    n = int(time.time() * 1000)
+    if not (bt <= n <= dl):
+        return SignOutcome(False, SignStatus.NOT_IN_WINDOW, "不在签到时段", task)
+
+    st, r = api("sign_in/%s/student/sign" % rid, "lng=%s&lat=%s" % (CFG.lng, CFG.lat), token)
+    ok = _has(r, "timestamp")
+    # signState 缺失属异常（服务端正常都会给），此时提交是保守决策，结果里要点明
+    prefix = "签到状态未知，已保守提交：" if ss is None else ""
+    if ok:
+        return SignOutcome(True, SignStatus.SIGNED, prefix + "签到成功", task)
+    return SignOutcome(False, SignStatus.SUBMIT_FAILED,
+                       prefix + "签到失败(%s): %s" % (st, r[:100]), task)
