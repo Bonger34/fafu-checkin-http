@@ -1,21 +1,23 @@
 # 开发文档
 
 > **面向**：接手本项目的开发者 / AI agent。
-> 使用见 [README](README.md) · 领域词汇见 [CONTEXT.md](CONTEXT.md) · 逆向细节见 [docs/reverse-notes.md](docs/reverse-notes.md) · 部署见 [docs/deploy.md](docs/deploy.md)。
-> ⚠️ 仅供学习研究，使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
+> 使用见 [README](../README.md) · 领域词汇见 [CONTEXT.md](../CONTEXT.md) · 逆向细节见 [reverse-notes.md](reverse-notes.md) · 部署见 [deploy.md](deploy.md)。
+> ⚠️ 仅供学习研究，使用前请阅读 [DISCLAIMER.md](../DISCLAIMER.md)。
 
 ## 一、定位：去哪改什么
 
+路径从仓库根算起：代码在 `src/`，离线测试在 `tests/`，配置与会话态（`config.ini` / `state.json`）在根目录。
+
 | 要改的 | 文件 |
 |---|---|
-| 配置 / 会话态 / 公共常量 / 时间 / 脱敏 | `fafu_config.py` |
-| 签名 / HTTP / 限流 / 登录链后半 / 会话保障 / **一轮签到** | `fafu_lib.py` |
-| CAS 登录（滑块 / 密码 / MFA / OAuth） | `fafu_login.py` |
-| 首次登录入口 | `login_once.py` |
-| 日常命令（status / refresh / once） | `checkin.py` |
-| 调度（保活 / 签到窗口） | `daemon.py` |
-| 启动 / 停止 / 状态 / 日志（**唯一入口**） | `run.py` |
-| 端到端验证 | `e2e_verify.py` |
+| 配置 / 会话态 / 公共常量 / 时间 / 脱敏 | `src/fafu_config.py` |
+| 签名 / HTTP / 限流 / 登录链后半 / 会话保障 / **一轮签到** | `src/fafu_lib.py` |
+| CAS 登录（滑块 / 密码 / MFA / OAuth） | `src/fafu_login.py` |
+| 首次登录入口 | `src/login_once.py` |
+| 日常命令（status / refresh / once） | `src/checkin.py` |
+| 调度（保活 / 签到窗口） | `src/daemon.py` |
+| 启动 / 停止 / 状态 / 日志（**唯一入口**） | `src/run.py` |
+| 端到端验证 | `src/e2e_verify.py` |
 | 离线测试 | `tests/` |
 | 接口参数 / 逆向证据 | `docs/reverse-notes.md` |
 
@@ -50,7 +52,7 @@
 | `fafu_lib` | 签名、HTTP（限流/退避/安全 JSON）、登录链后半、`ensure_token`、`sign_once`（一轮签到） |
 | `fafu_login` | CAS 登录前半（滑块/密码/MFA/OAuth） |
 
-## 三、不变量（改代码前必读）
+## 三、不变量（改代码前必读 · 12 条）
 
 硬约束。每条：规则 → 为什么 → 在哪。
 
@@ -92,12 +94,12 @@
 | 单元测试（离线，不发真实请求） | `python3 -m unittest discover -s tests -v` |
 | 导入检查（最小依赖） | `python3 -c "import fafu_config,fafu_lib,daemon"` |
 | 导入检查（含登录模块，需 numpy/opencv） | `python3 -c "import fafu_login"` |
-| 会话状态 | `python3 checkin.py status` |
-| 刷新会话 | `python3 checkin.py refresh` |
-| 立即签到 | `python3 checkin.py once` |
-| **守护进程管理** | `python3 run.py start / status / log / stop` |
-| 全链路 | `python3 e2e_verify.py` |
-| 调度一轮 | `python3 daemon.py --once` |
+| 会话状态 | `python3 src/checkin.py status` |
+| 刷新会话 | `python3 src/checkin.py refresh` |
+| 立即签到 | `python3 src/checkin.py once` |
+| **守护进程管理** | `python3 src/run.py start / status / log / stop` |
+| 全链路 | `python3 src/e2e_verify.py` |
+| 调度一轮 | `python3 src/daemon.py --once` |
 
 > 依赖：`pip install -r requirements.txt`。日常签到（token 有效）仍需要 `cryptography`
 > ——`fafu_lib` 顶层 import 了它，缺了直接 `ImportError`；`numpy`/`opencv-python` 仅登录需要。
@@ -126,7 +128,7 @@
 ## 七、接手提示（agent）
 
 - **安全**：`config.ini` / `state.json` 含真实凭据，已 gitignore，**切勿提交或外泄**。
-- **改前先跑** `python3 -m unittest discover -s tests`（离线、秒级）；涉及真实链路时再跑 `e2e_verify.py` 建立基线，改后重跑确认不破坏。
+- **改前先跑** `python3 -m unittest discover -s tests`（离线、秒级）；涉及真实链路时再跑 `src/e2e_verify.py` 建立基线，改后重跑确认不破坏。
 - **改登录链之前先读 `reverse/cas/login.js`**：验证码流程有多个「不调用就静默失败」的前置接口，只看 Python 侧完全看不出来（是哪几个、为什么见不变量 10）。
 - **验证优先于声明**：签名/窗口/限流等行为以实测为准——本项目每条结论都有实测支撑。
 - **建议技能**：继续逆向/写文档 → `writing-for-agents`；需要交接 → `handoff`。

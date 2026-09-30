@@ -8,10 +8,10 @@
 
 ```bash
 cd /path/to/fafu-checkin-http
-python3 run.py start      # 启动（后台）
-python3 run.py status     # 状态（守护进程 + 会话）
-python3 run.py log -f     # 实时日志（Ctrl+C 退出查看，不影响签到）
-python3 run.py stop       # 停止
+python3 src/run.py start      # 启动（后台）
+python3 src/run.py status     # 状态（守护进程 + 会话）
+python3 src/run.py log -f     # 实时日志（Ctrl+C 退出查看，不影响签到）
+python3 src/run.py stop       # 停止
 ```
 自带调度：白天保活、21:30 签到、失败补签，无需配置 cron。
 
@@ -25,17 +25,17 @@ Windows 会开一个可见窗口且**关掉窗口即停止**；平台差异详�
 >
 > 确实想手工启动的话，日志交给 daemon 自己写即可，别重定向到 `daemon.log`：
 > ```bash
-> nohup python3 daemon.py > /dev/null 2>&1 &
+> nohup python3 src/daemon.py > /dev/null 2>&1 &
 > ```
 
 ### 方式 2：cron
 
 ```cron
 # 保活：07:00-21:25 每 20 分钟（续 token）
-*/20 7-21 * * *  cd /path/to/fafu-checkin-http && python3 checkin.py refresh >> cron.log 2>&1
+*/20 7-21 * * *  cd /path/to/fafu-checkin-http && python3 src/checkin.py refresh >> cron.log 2>&1
 # 主签到：21:30-22:30 每分钟（幂等，已签自动跳过）
-30-59/1 21 * * * cd /path/to/fafu-checkin-http && python3 checkin.py once >> cron.log 2>&1
-* 22 * * *       cd /path/to/fafu-checkin-http && python3 checkin.py once >> cron.log 2>&1
+30-59/1 21 * * * cd /path/to/fafu-checkin-http && python3 src/checkin.py once >> cron.log 2>&1
+* 22 * * *       cd /path/to/fafu-checkin-http && python3 src/checkin.py once >> cron.log 2>&1
 ```
 > 签到窗口按**北京时间（UTC+8）**判断。服务器时区不同请换算，或设 `TZ=Asia/Shanghai`。
 >
@@ -52,7 +52,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/path/to/fafu-checkin-http
-ExecStart=/usr/bin/python3 daemon.py
+ExecStart=/usr/bin/python3 src/daemon.py
 Restart=always
 RestartSec=60
 User=youruser
@@ -86,7 +86,7 @@ pip install -r requirements.txt
 copy config.example.ini config.ini
 notepad config.ini            :: 填 username / password / device_id
 set PYTHONUTF8=1              :: 让 ✅ 等 emoji 正常显示（不设也不崩，会降级成 ?）
-python login_once.py
+python src\login_once.py
 ```
 按提示输入短信验证码。成功后 `state.json` 生成，之后**持续运行即无需再收短信**
 （refresh_token 为滑动续期，每次刷新重置 30 天；仅当连续 30 天未运行才需重登）。
@@ -95,10 +95,10 @@ python login_once.py
 
 **A. 守护进程**
 ```cmd
-python run.py start
-python run.py status
-python run.py log -f
-python run.py stop
+python src\run.py start
+python src\run.py status
+python src\run.py log -f
+python src\run.py stop
 ```
 > `start` 会弹出一个窗口实时显示日志，**关掉窗口即停止签到**。
 
@@ -106,7 +106,7 @@ python run.py stop
 1. 打开「任务计划程序」→「创建任务」
 2. **常规**：勾选「不管用户是否登录都要运行」「使用最高权限运行」
 3. **触发器**：新建 →「登录时」+「每天 07:00」
-4. **操作**：程序 `python`，参数 `daemon.py`，起始于 `C:\path\to\fafu-checkin-http`
+4. **操作**：程序 `python`，参数 `src\daemon.py`，起始于 `C:\path\to\fafu-checkin-http`
    （任务计划本身就是"守护者"，与 systemd 同理，不需要 `run.py`；但也**别再叠加**
    `run.py start`——两者同时跑会并发刷新，见方式 2 的告警）
 5. **设置**：勾选「如果任务失败，按以下频率重新启动」→ 1 分钟
@@ -118,9 +118,9 @@ python run.py stop
 ```bat
 @echo off
 cd /d C:\path\to\fafu-checkin-http
-python run.py start
+python src\run.py start
 ```
-> 这里走 `run.py` 而不是直接 `python daemon.py`：启动文件夹不是"守护者"，没有它就没有
+> 这里走 `run.py` 而不是直接 `python src\daemon.py`：启动文件夹不是"守护者"，没有它就没有
 > 重复启动检查，之后也没法 `run.py status` / `stop`。`run.py start` 会另开一个新窗口，
 > 这个 bat 窗口随即关闭。
 
@@ -148,8 +148,8 @@ termux-setup-storage
 
 | 项 | Linux | Windows |
 |---|---|---|
-| 启动 | `python3 run.py start` | `python run.py start` |
-| 启动后的样子 | 静默后台；`run.py log -f` 看日志 | 弹出窗口实时显示日志，关窗口即停止 |
+| 启动 | `python3 src/run.py start` | `python src\run.py start` |
+| 启动后的样子 | 静默后台；`src/run.py log -f` 看日志 | 弹出窗口实时显示日志，关窗口即停止 |
 | 定时 | cron / systemd | 任务计划程序 |
 | 文件权限 | `chmod 600` | 依赖 NTFS（默认仅当前用户可读） |
 

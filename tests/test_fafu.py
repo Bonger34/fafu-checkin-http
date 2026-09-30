@@ -14,8 +14,9 @@
 import os, sys, json, time, base64, shutil, tempfile, datetime, unittest
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+_SRC = os.path.join(_ROOT, "src")          # 模块在 src/，测试仍在 tests/
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
 import fafu_config, fafu_lib, daemon
 from fafu_config import TZ

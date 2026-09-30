@@ -17,7 +17,8 @@ from fafu_lib import ensure_token, query_task, sign_once, SignStatus
 
 setup_console()          # 中文 Windows 控制台默认 GBK，不处理会在打印 ✅ 时崩栈
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+# 代码在 src/，PID 与日志留在项目根——它们是运行时产物，与 config.ini / state.json 同处一地。
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _START_TS = time.time()  # 进程启动时刻，写进 PID 文件供 run.py 识破 PID 复用
 
 # ---- 调度参数（可调）----
@@ -35,8 +36,8 @@ WAKE_MARGIN     = 30           # 提前 30 秒唤醒（避免错过边界）
 log = logging.getLogger("fafu")
 log.addHandler(logging.NullHandler())
 
-_PID_PATH = os.path.join(_HERE, "daemon.pid")
-_LOG_PATH = os.path.join(_HERE, "daemon.log")
+_PID_PATH = os.path.join(_ROOT, "daemon.pid")
+_LOG_PATH = os.path.join(_ROOT, "daemon.log")
 
 def _setup_logging():
     """日志双写：文件固定 UTF-8 + 标准输出。
@@ -248,3 +249,4 @@ if __name__ == "__main__":
             except Exception:
                 pass
         raise
+

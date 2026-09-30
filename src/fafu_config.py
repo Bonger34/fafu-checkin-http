@@ -13,7 +13,9 @@
 """
 import os, sys, json, random, time, configparser, datetime, contextlib
 
-_DIR = os.path.dirname(os.path.abspath(__file__))
+# 代码在 src/，配置与会话态留在项目根：README 承诺「备份只需 state.json 连同
+# config.ini」，这两份文件必须与代码分离，更新代码时不会被一并换掉。
+_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def setup_console():
     """让中文 Windows 控制台不再因 emoji 崩栈。

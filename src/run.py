@@ -27,10 +27,12 @@ import sys
 import time
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-PIDF = HERE / "daemon.pid"
-LOGF = HERE / "daemon.log"
+HERE = Path(__file__).resolve().parent        # 代码目录：src/
+ROOT = HERE.parent                            # 项目根：config.ini / state.json / PID / 日志都在这里
+PIDF = ROOT / "daemon.pid"
+LOGF = ROOT / "daemon.log"
 ENTRY = HERE / "daemon.py"
+SELF = f"{HERE.name}/{Path(__file__).name}"   # 给人看的自调用写法，相对项目根
 TITLE = "fafu-checkin"
 PY = sys.executable          # 用当前解释器，天然修正 venv / python vs python3 的差异
 
@@ -145,7 +147,7 @@ def _spawn_daemon():
              关闭窗口 = 停止守护（用户要的就是这个直觉）。
     POSIX  ：没有「窗口」概念，用 nohup 式脱离；要看实时日志用 run.py log -f。
     """
-    kwargs = {"cwd": str(HERE), "stdin": subprocess.DEVNULL}
+    kwargs = {"cwd": str(ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
     else:
@@ -188,7 +190,7 @@ def cmd_start(_):
         print("   关闭那个窗口即停止签到")
     else:
         print(f"✅ 已启动 (PID {child.pid})，日志见 {LOGF.name}")
-        print(f"   实时查看： python {Path(__file__).name} log -f")
+        print(f"   实时查看： python {SELF} log -f")
     return 0
 
 
@@ -271,7 +273,7 @@ def cmd_status(_):
     # 不 flush 会让子进程的输出插到前面，读者看到的是颠倒的顺序。
     sys.stdout.flush()
     # 直接跑子命令并继承 stdio：不用管道，避免受限环境下失败
-    return subprocess.call([PY, str(HERE / "checkin.py"), "status"], cwd=str(HERE))
+    return subprocess.call([PY, str(HERE / "checkin.py"), "status"], cwd=str(ROOT))
 
 
 def cmd_log(args):

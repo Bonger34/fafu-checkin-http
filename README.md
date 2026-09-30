@@ -18,7 +18,7 @@
 |---|---|
 | 装好、跑起来 | **本 README** |
 | 部署到 Linux / Windows / NAS / Termux | [docs/deploy.md](docs/deploy.md) |
-| 二次开发 / 接手维护 | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| 二次开发 / 接手维护 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | 查术语（签到 / 保活 / 会话保障…） | [CONTEXT.md](CONTEXT.md) |
 | 搞懂登录链、设备锁、限流 | [docs/reverse-notes.md](docs/reverse-notes.md) |
 | 深入 WeLink 多设备/踢下线机制 | [docs/multi-device-login-analysis.md](docs/multi-device-login-analysis.md) |
@@ -48,14 +48,14 @@
 ## 快速开始
 
 > **命令约定**：本文所有命令统一写作 `python3` / `cp`；**Windows 用户请替换为 `python` / `copy`**。
-> 全部命令都在**仓库根目录**执行。
+> 全部命令都在**仓库根目录**执行（模块在 `src/`，测试在 `tests/`，配置与会话态在根目录）。
 
 ```bash
 pip install -r requirements.txt     # 1. 装依赖
 cp config.example.ini config.ini    # 2. 建配置，填 username / password / device_id
-python3 login_once.py               # 3. 首次登录（收一次短信验证码）
-python3 run.py start                # 4. 启动守护进程，此后全自动
-python3 run.py status               # 5. 确认守护进程与会话都正常
+python3 src/login_once.py           # 3. 首次登录（收一次短信验证码）
+python3 src/run.py start            # 4. 启动守护进程，此后全自动
+python3 src/run.py status           # 5. 确认守护进程与会话都正常
 ```
 
 其中第 2 步的 `device_id` 最容易填错，说明见「配置」。以下各节按这个顺序展开。
@@ -98,8 +98,8 @@ chmod 600 config.ini        # 仅 POSIX；Windows 跳过此步，依赖 NTFS 默
 ## 首次登录
 
 ```bash
-python3 login_once.py            # 交互式：收到短信后输入验证码
-python3 login_once.py 123456     # 也可直接把验证码作为参数传入
+python3 src/login_once.py            # 交互式：收到短信后输入验证码
+python3 src/login_once.py 123456     # 也可直接把验证码作为参数传入
 ```
 
 第二种写法传的是**本轮刚下发的那条**验证码，不能复用旧短信里的码。
@@ -111,9 +111,9 @@ python3 login_once.py 123456     # 也可直接把验证码作为参数传入
 ## 日常运行
 
 ```bash
-python3 checkin.py status     # 状态：token / 退避余量 / 接口连通性（会发一次真实查询）
-python3 checkin.py refresh    # 刷新会话
-python3 checkin.py once       # 立即检查并签到（幂等）
+python3 src/checkin.py status     # 状态：token / 退避余量 / 接口连通性（会发一次真实查询）
+python3 src/checkin.py refresh    # 刷新会话
+python3 src/checkin.py once       # 立即检查并签到（幂等）
 ```
 
 `once` 只跑一轮「查询 → 判定 → 需要时提交」，**不重试、也不等待窗口**：判定为已签到或请假时不会重复提交；失败时以**退出码 1** 结束，方便 cron 与脚本判断。
@@ -123,10 +123,10 @@ python3 checkin.py once       # 立即检查并签到（幂等）
 推荐**守护进程**——调度内置，你不必自己写 cron：
 
 ```bash
-python3 run.py start     # 启动
-python3 run.py status    # 状态（守护进程 + 会话）
-python3 run.py log -f    # 实时日志（Ctrl+C 退出查看，不影响签到）
-python3 run.py stop      # 停止
+python3 src/run.py start     # 启动
+python3 src/run.py status    # 状态（守护进程 + 会话）
+python3 src/run.py log -f    # 实时日志（Ctrl+C 退出查看，不影响签到）
+python3 src/run.py stop      # 停止
 ```
 
 内置调度时间表（窗口按**北京时间 UTC+8** 判定，与系统时区无关）：
@@ -147,7 +147,7 @@ python3 run.py stop      # 停止
 > 窗口内的控制台 QuickEdit 已被主动关闭——否则在里面拖选文本会让写日志的守护进程阻塞在
 > `WriteConsole` 上，一卡可能就是几小时，正好错过签到窗口。
 
-三端**就这一个入口**（Windows / macOS / Linux 同一份代码）。POSIX 下已设可执行位，也可以直接 `./run.py start`。cron / systemd / 任务计划 / Termux 见 [docs/deploy.md](docs/deploy.md)。
+三端**就这一个入口**（Windows / macOS / Linux 同一份代码）。POSIX 下 `src/run.py` 已设可执行位，也可以直接 `./src/run.py start`。cron / systemd / 任务计划 / Termux 见 [docs/deploy.md](docs/deploy.md)。
 
 > ⚠️ **不要同时跑两种调度方式**（如 `run.py start` 加 cron）：并发刷新会用同一个旧
 > `refresh_token` 打两次刷新链，可能互相作废并触发退避。
@@ -156,8 +156,8 @@ python3 run.py stop      # 停止
 
 `state.json` 保存全部会话态：`refresh_token`、`we_link_token`、`fafu_token`、`last_refresh_ts`、`next_refresh_after`、`refresh_fail`。其中 **`refresh_token` 是唯一的重登凭证**，丢了就得重新短信登录。
 
-- **滑动续期**：每次刷新重置 30 天。持续运行永不过期；仅当**连续 30 天以上未运行**才需重跑 `login_once.py`。
-- **刷新失败会退避**：阶梯为 1 → 5 → 30 → 120 分钟，成功后进入 30 分钟冷却。退避期内不再重打刷新链，以免把端点打到限流而错过签到窗口。`checkin.py status` 会显示当前退避余量。
+- **滑动续期**：每次刷新重置 30 天。持续运行永不过期；仅当**连续 30 天以上未运行**才需重跑 `src/login_once.py`。
+- **刷新失败会退避**：阶梯为 1 → 5 → 30 → 120 分钟，成功后进入 30 分钟冷却。退避期内不再重打刷新链，以免把端点打到限流而错过签到窗口。`src/checkin.py status` 会显示当前退避余量。
 - **写入是原子的**：加锁 + 增量合并 + 原子落盘，多进程并发写不会互相覆盖。但请注意这只保护**文件本身**——并发**刷新会话**仍会互相作废，所以不要同时跑两种调度方式（见「自动运行」）。
 
 > 要备份只需 `state.json`（连同 `config.ini`）——**两者都含真实凭据，切勿提交到版本库**。
@@ -168,14 +168,14 @@ python3 run.py stop      # 停止
 |---|---|---|
 | `❌ 缺少配置项：device_id` | `config.ini` 未填或字段为空 | 按「配置」一节填写，或设 `FAFU_DEVICE_ID` |
 | `❌ 换取失败(200): 同一账号仅允许在同一台手机登录…` | `device_id` 与账号绑定的设备不一致 | 核对 `device_id` 是否与该账号绑定设备完全一致（含大小写） |
-| `❌ 无法获取 token：请检查 refresh_token 是否有效` | 会话态失效或缺失——最常见的原因是超过 30 天未运行 | 重跑 `login_once.py`，重新收一次短信 |
+| `❌ 无法获取 token：请检查 refresh_token 是否有效` | 会话态失效或缺失——最常见的原因是超过 30 天未运行 | 重跑 `python3 src/login_once.py`，重新收一次短信 |
 | `⏳ 刷新退避中（已连续失败 N 次）` | 刷新失败进入退避，本轮并未尝试刷新 | 等提示的时长即可；若反复出现，说明 `refresh_token` 已失效或端点变更 |
 | `❌ 未安装 ddddocr，无法识别图形验证码` | 风控切到了图形码路径 | `pip install ddddocr`，或改用手机 App 扫码登录 |
 | `❌ 未能从登录页提取 pwdEncryptSalt` | 登录页结构变更，或 IP 被拦 | 换网络重试；确认是否被校园网出口风控 |
 | `❌ 无法切换到滑块验证` / `❌ 滑块验证失败` | 风控状态变化，或滑块识别不准 | 重试；多次失败后改用手机 App 登录刷新会话 |
 | `⚠️ 无法确认 PID xxx 就是本项目的守护进程` | 缺 `psutil`，身份判据降级 | `pip install psutil`。这是**有意拒绝执行**，以免 PID 复用误杀无关进程 |
-| `❌ 守护进程启动后立即退出（退出码 N）` | 配置或依赖有问题 | 看日志末尾（`run.py log`）：最常见是缺配置项或没装 `cryptography` |
-| 日志出现 `签到状态不是已知取值` | 服务端新增了 `signState` 取值 | 项目会**保守提交**（宁可多签不可漏签），但这属于未知情况，建议[提 issue](https://github.com/Bonger34/fafu-checkin-http/issues) 并附 `run.py log` 的输出 |
+| `❌ 守护进程启动后立即退出（退出码 N）` | 配置或依赖有问题 | 看日志末尾（`python3 src/run.py log`）：最常见是缺配置项或没装 `cryptography` |
+| 日志出现 `签到状态不是已知取值` | 服务端新增了 `signState` 取值 | 项目会**保守提交**（宁可多签不可漏签），但这属于未知情况，建议[提 issue](https://github.com/Bonger34/fafu-checkin-http/issues) 并附 `src/run.py log` 的输出 |
 | 窗口内一直没签上 | 触发 WAF 端点限流（冷却 15–20 分钟） | 检查是否有多个实例在跑——请求间隔由代码强制 ≥2s，但并行运行多份会绕过它 |
 
 `signState` 语义（无官方文档，由实测比对确证）：`0` 未签、`1` 已签到、`2` 请假、缺失为未知。**只有 `1` 与 `2` 算当天已了结**，其余取值一律尝试提交。
@@ -186,26 +186,16 @@ python3 run.py stop      # 停止
 - 日志中的 token / 学号 / 设备 ID 已自动脱敏。
 - ⚠️ **校方接口为明文 HTTP**（`http://stuhtapi.fafu.edu.cn`、`http://auth.fafu.edu.cn`）。密码虽经 AES 加密上传，但加密密钥 `pwdEncryptSalt` 本身就是通过明文 HTTP 下发的——中间人可替换登录页并解出密码；`deviceId`、token、学籍信息同样明文传输。这是校方服务器的限制，本项目无法修复，**请勿在公共 Wi-Fi、代理或任何不可信网络下运行**。
 
-## 开发与测试
+## 测试
 
 ```bash
 python3 -m unittest discover -s tests -v    # 离线运行，不发任何真实请求
-python3 e2e_verify.py                       # 端到端验证：会发真实请求，消耗真实会话
+python3 src/e2e_verify.py                   # 端到端验证：会发真实请求，消耗真实会话
 ```
 
-单元测试覆盖刷新退避、state 并发写、签到判定、窗口边界、PID 文件生命周期，以及 CAS 登录链的三个前置调用（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）。其中 `tests/test_flow.py` 只把最底层的网络出口换成假实现，让签名、JSON 解析、会话保障、签到决策全部走真实代码，跑通 7 条完整业务链路。
-
-| 文件 | 职责 |
-|---|---|
-| `fafu_config.py` | 配置加载、会话态持久化、公共常量与脱敏 |
-| `fafu_lib.py` | 签名、HTTP（限流 / 退避 / 安全 JSON）、`ensure_token`、`sign_once` |
-| `fafu_login.py` | CAS 登录前半：滑块 / 密码 / MFA / OAuth |
-| `login_once.py` · `checkin.py` | 首次登录入口 · 日常命令（status / refresh / once） |
-| `daemon.py` · `run.py` | 调度（保活 / 签到窗口） · 启动停止与日志（唯一入口） |
-| `e2e_verify.py` | 端到端验证 |
-
-完整的测试覆盖清单、不变量、模块边界与设计取舍见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+文件职责表、不变量、模块边界与完整测试覆盖清单见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 许可
 
 [DISCLAIMER.md](DISCLAIMER.md) · [LICENSE](LICENSE)
+
