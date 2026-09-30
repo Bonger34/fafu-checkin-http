@@ -34,6 +34,7 @@ class FlowDrillTest(unittest.TestCase):
 
         self.calls = []                         # 记录所有外发请求，供断言
         self.refresh_ok = True
+        self.refresh_omits_token = False        # 模拟服务端未回传新 refresh_token
         self.sign_ok = True
         self.sign_state = 0
         self.task_shift_ms = 0
@@ -50,8 +51,10 @@ class FlowDrillTest(unittest.TestCase):
         if "refresh/LoginReg" in url:
             if not self.refresh_ok:
                 return 429, '{"error":"rate limited"}', None
-            return (200, json.dumps({"refresh_token": "RT_ROTATED", "expires_in": 7200}),
-                    ["token=WT_NEW; Max-Age=7200"])
+            d = {"expires_in": 7200}
+            if not self.refresh_omits_token:
+                d["refresh_token"] = "RT_ROTATED"
+            return 200, json.dumps(d), ["token=WT_NEW; Max-Age=7200"]
         if "sso/auth/v2/code" in url:
             return 200, json.dumps({"code": "AUTHCODE_1"}), None
         if "third_party/welink/login" in url:
@@ -157,6 +160,23 @@ class FlowDrillTest(unittest.TestCase):
         self.sign_ok = False
         self.assertFalse(daemon.try_sign(), "业务失败被误判为签到成功")
         self.assertEqual(self._count("/student/sign"), 1)
+
+    # ---- 链路 7：响应缺失新 refresh_token 时不得抹掉旧值 ----
+    def test_refresh_without_rotated_token_keeps_previous_one(self):
+        """链路7：刷新成功但响应未回传 refresh_token → 必须沿用旧值
+
+        回归背景：服务端不保证每次都回传该字段（滑动续期常常只延长有效期、
+        不换发新值）。若把 None 直接写回 state，唯一的重登凭证被抹成 null，
+        此后 ensure_token 会因「没有 refresh_token」永久拒绝刷新，
+        只能重新走一次短信登录。整条链路的其余部分应当照常成功。
+        """
+        self._seed(fafu_token="FAFU_TOK_EXPIRED", refresh_token="RT_OLD")
+        self.refresh_omits_token = True
+        self.assertTrue(daemon.try_sign(), "缺 refresh_token 不应影响本次刷新与签到")
+        state = self._state()
+        self.assertEqual(state["refresh_token"], "RT_OLD", "唯一的 refresh_token 被抹掉了")
+        self.assertEqual(state["fafu_token"], "FAFU_TOK_NEW")
+        self.assertEqual(state["refresh_fail"], 0)
 
 
 if __name__ == "__main__":

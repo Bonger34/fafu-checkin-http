@@ -160,7 +160,7 @@ class Config:
 
         每次都以磁盘最新内容为基准、只应用本次的 kw。daemon 这类长驻进程的
         内存快照可能早已过期，若按内存全量覆盖，就会抹掉其他进程刚写入的键
-        —— refresh_token 每次刷新都会轮换，被抹掉即需重新短信登录。
+        —— refresh_token 是唯一的重登凭证，被抹掉即需重新短信登录。
         """
         with _state_lock():
             merged = self._read_state_file()

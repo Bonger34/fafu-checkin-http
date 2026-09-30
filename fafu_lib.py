@@ -157,13 +157,19 @@ def cookie_token(set_cookies):
     return None
 
 def refresh_we_link(refresh_token):
-    """refresh_token → 新 (we_link_token, refresh_token)。refresh_token 每次轮换。"""
+    """refresh_token → (we_link_token, refresh_token)。
+
+    服务端不保证回传新的 refresh_token：滑动续期往往只延长有效期、不换发新值
+    （实测同一次刷新前后取到的是同一个值）。此时沿用传入值——它是唯一的重登
+    凭证，返回 None 会被调用方写回 state 抹成 null，此后只能重新短信登录。
+    """
     st, body, sc = _request(MAG_BASE + "/v7/refresh/LoginReg",
         data={"refresh_token": refresh_token, "thirdAuthType": "3", "tenantid": _rsa_tenant()})
     if st != 200:
         return None, None, st, body
     d = _json(body, {})
-    return cookie_token(sc), (d.get("refresh_token") if isinstance(d, dict) else None), st, body
+    new_rt = d.get("refresh_token") if isinstance(d, dict) else None
+    return cookie_token(sc), (new_rt or refresh_token), st, body
 
 
 # ---- 会话保障：优先用本地 token，失效则刷新（成功冷却 / 失败退避）----

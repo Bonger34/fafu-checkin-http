@@ -107,8 +107,8 @@ python run.py stop      # 停止
 python3 -m unittest discover -s tests -v    # 离线运行，不发任何真实请求
 ```
 
-覆盖刷新退避、state 并发写、响应判定、窗口边界与 PID 文件生命周期；`tests/test_run.py` 另覆盖管理脚本的 PID 身份判定（含防 PID 复用）与子命令分派。
+覆盖刷新退避、刷新响应缺字段、state 并发写、响应判定、窗口边界与 PID 文件生命周期；`tests/test_run.py` 另覆盖管理脚本的 PID 身份判定（含防 PID 复用）与子命令分派。
 
-`tests/test_flow.py` 另做 6 条完整业务链路的离线演练：只把最底层的网络出口换成假实现，签名、JSON 解析、会话保障、刷新退避、签到决策全部走真实代码，可覆盖「token 失效 → 自动刷新 → 签到成功」「刷新失败 → 退避不空转」等路径。
+`tests/test_flow.py` 另做 7 条完整业务链路的离线演练：只把最底层的网络出口换成假实现，签名、JSON 解析、会话保障、刷新退避、签到决策全部走真实代码，可覆盖「token 失效 → 自动刷新 → 签到成功」「刷新失败 → 退避不空转」等路径。
 
 `tests/test_login_flow.py` 覆盖 CAS 登录链的三个关键前置步骤（`checkNeedCaptcha` / `toSliderCaptcha` / 二进制取图）、滑块轨迹的累计语义，以及图形码 OCR 的长度过滤。未装 numpy/opencv 时该组自动跳过。

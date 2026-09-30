@@ -5,10 +5,11 @@
     python -m unittest discover -s tests -v
     python tests/test_fafu.py
 
-覆盖的是历史上真实出过问题的三处：
+覆盖的是历史上真实出过问题的四处：
   1. 刷新失败不落冷却 → 守护进程失败风暴触发 WAF 限流（TokenFlowTest）
-  2. 陈旧内存快照全量覆盖 → 抹掉别的进程轮换后的 refresh_token（SaveStateTest）
-  3. 响应判定用子串匹配 → 被格式差异击穿（PureFunctionTest.test_has_*）
+  2. 刷新响应缺 refresh_token → 把唯一的重登凭证抹成 null（RefreshTokenContractTest）
+  3. 陈旧内存快照全量覆盖 → 抹掉别的进程写入的 refresh_token（SaveStateTest）
+  4. 响应判定用子串匹配 → 被格式差异击穿（PureFunctionTest.test_has_*）
 """
 import os, sys, json, time, base64, shutil, tempfile, datetime, unittest
 
@@ -114,11 +115,59 @@ class TokenFlowTest(StateIsolatedTest):
         self.assertEqual(self.cfg.get_state("next_refresh_after", 0), 0)
 
 
+class RefreshTokenContractTest(unittest.TestCase):
+    """refresh_we_link 的返回契约：refresh_token 不能凭空消失。
+
+    回归背景：服务端不保证回传新的 refresh_token（滑动续期可能只延长有效期、
+    不换发新值）。原实现直接取 `d.get("refresh_token")`，缺字段时给出 None，
+    调用方把它写回 state 就把唯一的重登凭证抹成了 null——且当次签到照样成功，
+    故障要等到下一次刷新才发作。
+
+    这里只替换最底层的网络出口，refresh_we_link 的解析逻辑全走真实代码。
+    """
+
+    def setUp(self):
+        self._orig = fafu_lib._request
+
+    def tearDown(self):
+        fafu_lib._request = self._orig
+
+    def _reply(self, body, status=200, cookies=("token=WT_NEW; Max-Age=7200",)):
+        def fake(url, data=None, headers=None, method=None, retry=3):
+            return status, body, list(cookies or ())
+        fafu_lib._request = fake
+
+    def test_missing_token_falls_back_to_input(self):
+        """响应缺 refresh_token 字段 → 沿用传入值，而不是 None"""
+        self._reply(json.dumps({"expires_in": 7200}))
+        wt, rt, st, _ = fafu_lib.refresh_we_link("RT_OLD")
+        self.assertEqual(wt, "WT_NEW")
+        self.assertEqual(rt, "RT_OLD", "缺字段时返回 None，会抹掉唯一的重登凭证")
+
+    def test_non_json_body_falls_back(self):
+        """WAF 拦截页之类非 JSON 响应 → 同样沿用传入值"""
+        self._reply("<html>403 Forbidden</html>")
+        self.assertEqual(fafu_lib.refresh_we_link("RT_OLD")[1], "RT_OLD")
+
+    def test_present_token_is_used(self):
+        """服务端回传新值时照常采用，不破坏正常轮换"""
+        self._reply(json.dumps({"refresh_token": "RT_NEW"}))
+        self.assertEqual(fafu_lib.refresh_we_link("RT_OLD")[1], "RT_NEW")
+
+    def test_failed_status_yields_no_token(self):
+        """HTTP 非 200 维持既有语义：不返回 token（调用方本就不会落盘）"""
+        self._reply('{"error":"rate limited"}', status=429, cookies=None)
+        wt, rt, st, _ = fafu_lib.refresh_we_link("RT_OLD")
+        self.assertIsNone(wt)
+        self.assertIsNone(rt)
+        self.assertEqual(st, 429)
+
+
 class SaveStateTest(StateIsolatedTest):
     """state.json 的跨进程合并写。
 
     回归背景：save_state 原先按内存快照全量覆盖，daemon 这类长驻进程会抹掉
-    其他进程刚写入的键；refresh_token 每次刷新都轮换，被抹掉就得重新短信登录。
+    其他进程刚写入的键；refresh_token 是唯一的重登凭证，被抹掉就得重新短信登录。
     """
 
     def test_stale_snapshot_does_not_clobber_newer_key(self):
