@@ -289,11 +289,15 @@ class SignOutcome(NamedTuple):
     detail    —— 结论句成品，不含任务名前缀（那在 task.name 里），
                  调用方直接 log/print 即可。
     task      —— 查询失败时为 None。
+    uncertain —— 判定依据的 `signState` 不是已知取值（缺失或没见过），本轮按
+                 保守策略处理。调用方想知道「为什么这轮在保守提交」就读它，
+                 不要各自再实现一遍取值判断——那正是这次要消灭的漂移形态。
     """
     completed: bool
     status: SignStatus
     detail: str
     task: Optional[TaskInfo] = None
+    uncertain: bool = False
 
 
 def sign_once(token):
@@ -303,8 +307,10 @@ def sign_once(token):
     也不管输出到哪去（daemon 记日志、CLI 打终端）。
 
     判定依据逐条都有实测或回归支撑：
-      · signState 非 0 → 已签到或已请假，今日了结，不重复提交
-      · signState 缺失 → 视为未知并保守提交（不变量 4：宁可多签不可漏签）
+      · `signState` 为 `1`（已签到）或 `2`（请假）→ 今日了结，不重复提交
+      · `signState` 为 `0` → 未签，照常走窗口判定并提交
+      · `signState` 缺失或**没见过的取值** → 判定依据不确定，一律保守提交
+        （不变量 4：宁可多签不可漏签），并在 `uncertain` 里标出来
       · 当前时间不在 [beginTime, 补签截止] 内 → 跳过，且不算今日了结
       · 完整性校验看的是**回退之后**的补签截止，与
         `dl = supplementEndTime or endTime` 的兜底意图保持一致
@@ -325,20 +331,28 @@ def sign_once(token):
 
     task = TaskInfo(name, rid, ss, bt, et, dl)
 
-    if ss is not None and ss != 0:                  # 明确已签到或已请假
-        # 2 是请假，与「已签到」同样意味着今日了结，但措辞不能混为一谈
-        what = "请假" if ss == 2 else "已签到（状态%s）" % ss
-        return SignOutcome(True, SignStatus.ALREADY_SIGNED, "%s，无需操作" % what, task)
+    # 已知取值只有三种：0 未签、1 已签到、2 请假。其余一律视为判定依据不确定，
+    # 走保守路径（不变量 4）。曾经判的是「非 0 即已签」，那样服务端一旦新增
+    # 一个表示未签的取值，就会静默漏签。
+    uncertain = ss not in (0, 1, 2)
+
+    if ss in (1, 2):                                # 明确已签到(1) / 已请假(2)
+        return SignOutcome(True, SignStatus.ALREADY_SIGNED,
+                           "%s，无需操作" % ("请假" if ss == 2 else "已签到"), task, uncertain)
+
+    if ss is None:
+        note = "签到状态未知，已保守提交："
+    elif uncertain:
+        note = "签到状态为未见过取值 %s，已保守提交：" % ss
+    else:
+        note = ""
 
     n = int(time.time() * 1000)
     if not (bt <= n <= dl):
-        return SignOutcome(False, SignStatus.NOT_IN_WINDOW, "不在签到时段", task)
+        return SignOutcome(False, SignStatus.NOT_IN_WINDOW, "不在签到时段", task, uncertain)
 
     st, r = api("sign_in/%s/student/sign" % rid, "lng=%s&lat=%s" % (CFG.lng, CFG.lat), token)
-    ok = _has(r, "timestamp")
-    # signState 缺失属异常（服务端正常都会给），此时提交是保守决策，结果里要点明
-    prefix = "签到状态未知，已保守提交：" if ss is None else ""
-    if ok:
-        return SignOutcome(True, SignStatus.SIGNED, prefix + "签到成功", task)
+    if _has(r, "timestamp"):
+        return SignOutcome(True, SignStatus.SIGNED, note + "签到成功", task, uncertain)
     return SignOutcome(False, SignStatus.SUBMIT_FAILED,
-                       prefix + "签到失败(%s): %s" % (st, r[:100]), task)
+                       note + "签到失败(%s): %s" % (st, r[:100]), task, uncertain)

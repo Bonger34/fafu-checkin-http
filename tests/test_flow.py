@@ -137,6 +137,20 @@ class FlowDrillTest(DrillBase):
         self.assertTrue(daemon.try_sign())
         self.assertEqual(self._count("/student/sign"), 0, "已请假却提交了签到")
 
+    # ---- daemon 的日志：保守提交要留痕 ----
+    def test_uncertain_state_is_warned_in_daemon_log(self):
+        """daemon 要把「判定依据不确定」写进日志
+
+        这条 warning 是发现服务端字段新增取值的信号；没有测试守的话，
+        很容易在某次措辞调整里被顺手删掉。
+        """
+        self._seed(fafu_token="FAFU_TOK_OK")
+        self.sign_state = 3
+        with self.assertLogs("fafu", level="WARNING") as cm:
+            daemon.try_sign()
+        self.assertTrue(any("不是已知取值" in line for line in cm.output),
+                        "保守提交没有留下日志")
+
     # ---- 链路 2：token 失效，走完整刷新链 ----
     def test_expired_token_runs_full_refresh_chain(self):
         """链路2：token 失效 → 刷新链三跳全过 → 用新 token 签到 → refresh_token 轮换落盘"""
@@ -239,7 +253,7 @@ class SignOnceTest(DrillBase):
         self.assertEqual(out.task.name, "晚查寝签到", "结果里要能拿到任务，供调用方展示")
         self.assertEqual(out.task.id, 306764)
 
-    # ---- 不变量 4：状态未知时保守签到 ----
+    # ---- 不变量 4：状态不确定时保守签到 ----
     def test_unknown_state_still_attempts(self):
         """signState 缺失 → 视为未知并尝试签到（不变量 4：宁可多签不可漏签）"""
         self.task_extra = {"signInStudent": None}
@@ -247,6 +261,45 @@ class SignOnceTest(DrillBase):
         self.assertEqual(self._count("/student/sign"), 1, "状态未知时漏签了")
         self.assertEqual(out.status, fafu_lib.SignStatus.SIGNED)
         self.assertIn("保守", out.detail, "保守提交是服务端字段变动的信号，要说出来")
+
+    def test_unseen_state_is_treated_conservatively(self):
+        """没见过的取值（如 3）→ 保守提交并说明，不当作已签到
+
+        回归背景：判定原为 `ss is not None and ss != 0`，任何非零值都算已了结，
+        而文档写的是「遇到其他值一律保守尝试签到」。这个分歧在服务端新增取值时
+        会变成静默漏签——本项目的取舍是宁可多签不可漏签。
+        """
+        self.sign_state = 3
+        out = fafu_lib.sign_once("TOK")
+        self.assertEqual(self._count("/student/sign"), 1, "没见过的取值被当成已签到，漏签了")
+        self.assertEqual(out.status, fafu_lib.SignStatus.SIGNED)
+        self.assertIn("保守", out.detail, "保守提交这件事本身要说出来")
+        self.assertIn("3", out.detail, "还要说出是哪个取值，便于察觉服务端变更")
+
+    def test_unseen_state_marks_outcome_uncertain(self):
+        """判定依据不是已知取值时，结果要能被调用方识别出来
+
+        调用方（daemon 的日志、CLI 的提示）都要能说出「这一轮是保守决策的」，
+        但不该各自再实现一遍取值判断——那正是这次要消灭的漂移形态。
+        """
+        self.sign_state = 3
+        out = fafu_lib.sign_once("TOK")
+        self.assertTrue(out.uncertain, "未见过取值没有被标记为不确定")
+
+    def test_missing_state_is_also_uncertain(self):
+        """signState 缺失同样属于「判定依据不确定」"""
+        self.task_extra = {"signInStudent": None}
+        out = fafu_lib.sign_once("TOK")
+        self.assertTrue(out.uncertain)
+
+    def test_known_states_are_not_uncertain(self):
+        """已知取值不该被标成不确定，否则告警会变成噪音"""
+        for state in (0, 1, 2):
+            with self.subTest(sign_state=state):
+                self.sign_state = state
+                self.calls = []
+                out = fafu_lib.sign_once("TOK")
+                self.assertFalse(out.uncertain, "状态 %s 是已知取值" % state)
 
     # ---- 坏记录：两份实现曾在此漂移 ----
     def test_missing_end_time_still_signs(self):

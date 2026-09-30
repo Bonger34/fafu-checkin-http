@@ -168,14 +168,17 @@ def try_sign():
     if out.status is SignStatus.SIGNED:
         # 「补签 / 签到」按当前时刻区分，属调度概念，留在这一侧
         kind = "补签" if in_supp_window(now()) else "签到"
-        if out.task and out.task.sign_state is None:
-            # 状态缺失时是保守提交：这条信号要留在日志里（它是服务端字段变动的征兆）
-            log.warning("[%s] 签到状态未知(signInStudent 缺失)，已保守提交", name)
         log.info("✅ %s成功 [%s] %s", kind, name, hm())
     elif out.status in (SignStatus.ALREADY_SIGNED, SignStatus.NOT_IN_WINDOW):
         log.info("[%s] %s", name, out.detail)
     else:
         log.warning("[%s] %s", name, out.detail)
+
+    if out.uncertain:
+        # 判定依据不是已知状态。取值判断只留在 sign_once 里，这里只消费它的结论，
+        # 不再抄一份值域——那正是这次收敛要消灭的漂移形态。
+        log.warning("[%s] 签到状态不是已知取值（%s），本轮按保守策略处理",
+                    name, out.task.sign_state if out.task else "任务记录缺失")
     return out.completed
 
 def seconds_until_next(signed_today=False):
