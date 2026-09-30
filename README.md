@@ -58,9 +58,9 @@ vim config.ini          # 填 username / password / device_id（tenant_id 已预
 python3 login_once.py
 
 # 3. 之后日常（无需再收短信）
-python3 rootless_checkin.py status     # 查看状态
-python3 rootless_checkin.py refresh    # 刷新会话
-python3 rootless_checkin.py once       # 立即检查签到
+python3 checkin.py status     # 查看状态
+python3 checkin.py refresh    # 刷新会话
+python3 checkin.py once       # 立即检查签到
 ```
 
 ## 自动运行

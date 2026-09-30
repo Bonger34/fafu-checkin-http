@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-免 root 全自动签到：纯 HTTP 登录链 + 仓库同款打卡逻辑。
+日常签到入口（免 root）：纯 HTTP 登录链 + 仓库同款打卡逻辑。
 凭据从 config.ini 读取；会话态自动存于 state.json。
 
 用法：
-    python3 rootless_checkin.py status     # 查看 token / 任务状态
-    python3 rootless_checkin.py refresh    # 用 refresh_token 刷新会话
-    python3 rootless_checkin.py once       # 立即检查并签到（幂等）
+    python3 checkin.py status     # 查看 token / 任务状态
+    python3 checkin.py refresh    # 用 refresh_token 刷新会话
+    python3 checkin.py once       # 立即检查并签到（幂等）
 """
 import sys
 from fafu_config import CFG, fmt_hm, mask, setup_console

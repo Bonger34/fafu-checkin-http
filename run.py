@@ -271,7 +271,7 @@ def cmd_status(_):
     # 不 flush 会让子进程的输出插到前面，读者看到的是颠倒的顺序。
     sys.stdout.flush()
     # 直接跑子命令并继承 stdio：不用管道，避免受限环境下失败
-    return subprocess.call([PY, str(HERE / "rootless_checkin.py"), "status"], cwd=str(HERE))
+    return subprocess.call([PY, str(HERE / "checkin.py"), "status"], cwd=str(HERE))
 
 
 def cmd_log(args):

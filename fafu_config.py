@@ -20,7 +20,7 @@ def setup_console():
 
     控制台默认代码页是 GBK，而这些脚本会打印 ✅ / ⚠️ 之类的字符，GBK 编不出来，
     于是 print 直接抛 UnicodeEncodeError——`e2e_verify.py` 必崩、
-    `rootless_checkin.py status` 必崩。这里只把不可编码的字符降级成 '?'，
+    `checkin.py status` 必崩。这里只把不可编码的字符降级成 '?'，
     不改变输出编码，避免控制台出现乱码。
 
     各入口脚本导入后应立即调用一次。

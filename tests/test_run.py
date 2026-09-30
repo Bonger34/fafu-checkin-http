@@ -189,7 +189,7 @@ class CommandTest(unittest.TestCase):
         self.assertNotIn("line96", out)
 
     def test_status_reports_daemon_state_without_touching_network(self):
-        """status 会转调 rootless_checkin.py（真跑会打接口），这里打桩。"""
+        """status 会转调 checkin.py（真跑会打接口），这里打桩。"""
         calls = []
         orig = runmod.subprocess.call
         runmod.subprocess.call = lambda *a, **k: calls.append(a) or 0
@@ -199,7 +199,7 @@ class CommandTest(unittest.TestCase):
             runmod.subprocess.call = orig
         self.assertEqual(rc, 0)
         self.assertIn("未运行", out)
-        self.assertEqual(len(calls), 1, "应转调一次 rootless_checkin.py status")
+        self.assertEqual(len(calls), 1, "应转调一次 checkin.py status")
 
 
 class CliTest(unittest.TestCase):

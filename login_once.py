@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 首次登录（仅需一次短信）：CAS 登录 + MFA → 保存 refresh_token 到 state.json。
-之后日常运行 rootless_checkin.py 即可，无需再收短信。
+之后日常运行 checkin.py 即可，无需再收短信。
 
 用法：
     python3 login_once.py            # 交互式：登录后提示输入短信验证码
@@ -36,7 +36,7 @@ def main():
                          "（接口可能已变更，请重试或检查 docs/reverse-notes.md）")
     CFG.save_state(we_link_token=wt, refresh_token=rt)
     print("✅ 登录成功！refresh_token 已保存（持续运行可无限续期，无需再收短信）")
-    print("   后续运行： python3 rootless_checkin.py refresh")
+    print("   后续运行： python3 checkin.py refresh")
 
 if __name__ == "__main__":
     main()

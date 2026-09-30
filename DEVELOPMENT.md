@@ -12,7 +12,7 @@
 | 签名 / HTTP / 限流 / 登录链后半 / 会话保障 / **一轮签到** | `fafu_lib.py` |
 | CAS 登录（滑块 / 密码 / MFA / OAuth） | `fafu_login.py` |
 | 首次登录入口 | `login_once.py` |
-| 日常命令（status / refresh / once） | `rootless_checkin.py` |
+| 日常命令（status / refresh / once） | `checkin.py` |
 | 调度（保活 / 签到窗口） | `daemon.py` |
 | 启动 / 停止 / 状态 / 日志（**唯一入口**） | `run.py` |
 | 端到端验证 | `e2e_verify.py` |
@@ -34,7 +34,7 @@
     → state.json { refresh_token, we_link_token }
 
 【循环】日常
-  daemon.py / rootless_checkin.py
+  daemon.py / checkin.py
     → fafu_lib.ensure_token()
         ├ 本地 token 有效 → 复用（1 次请求验证）
         └ 失效 → refresh_we_link → fetch_authcode → exchange_fafu_token
@@ -59,7 +59,7 @@
 3. **签到窗口按北京时间（UTC+8）**。不能用系统时区，否则 UTC 机器把 21:30 算成 13:30。→ `fafu_config.TZ` / `daemon.now`
 4. **`signState` 不是 `1`/`2` 时保守签到**。只有 `1`（已签到）与 `2`（请假）算已了结；`0` 未签、`None` 缺失、以及**没见过的取值**一律尝试签到（幂等，宁可多签不可漏签）。→ `fafu_lib.sign_once`
 5. **`configparser(interpolation=None)`**。否则密码含 `%` 抛 `InterpolationSyntaxError`。→ `fafu_config.Config.__init__`
-6. **token 落日志前脱敏**。用 `fafu_config.mask`，避免学号/设备/token 明文。→ `daemon` / `rootless_checkin` / `e2e_verify`
+6. **token 落日志前脱敏**。用 `fafu_config.mask`，避免学号/设备/token 明文。→ `daemon` / `checkin` / `e2e_verify`
 7. **会话态写入必须「加锁 + 增量合并 + 原子落盘」**。三者缺一不可：锁让「读—改—写」跨进程串行；**增量合并**保证不拿陈旧内存快照覆盖别的进程刚写的键（`refresh_token` 是唯一的重登凭证，被抹掉就得重新短信登录）；`PID+随机数` 的 tmp 再 `os.replace` 保证不写坏文件。→ `fafu_config.save_state` / `_state_lock`
 8. **签名 URL 不含 query**。`mk_auth` 只签路径，query 单独拼（与参考仓库一致，服务端接受）。→ `fafu_lib.api`
 9. **刷新失败也必须写退避**。`ensure_token` 的每条失败分支都要落 `next_refresh_after`；否则窗口内每分钟重打整条刷新链（3 个 auth 请求），实测 ~20 分钟 30 次即触发 WAF 端点限流 15–20 分钟——正好覆盖签到窗口，直接漏签。→ `fafu_lib._refresh_state`
@@ -77,7 +77,7 @@
 - **OCR 只能靠长度过滤，不能靠置信度**：实测 ddddocr 漏字时置信度仍有 0.99+（高于部分正确样本）。`_pick_captcha` 以长度为准、不合格就换图——换图不消耗登录次数，提交才消耗。`ddddocr` 为可选依赖，惰性导入。
 - **`_cas` 的 `binary=True`**：验证码图片是 JPEG，默认的 `.decode("utf-8","replace")` 会直接抛 `UnicodeEncodeError`。
 - **`CFG` 属性**：拼错抛 `AttributeError`；会话态键限 `_STATE_KEYS`（`we_link_token`/`refresh_token`/`fafu_token`/`last_refresh_ts`/`next_refresh_after`/`refresh_fail`）。
-- **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`rootless_checkin.py status` 会显示当前退避余量。
+- **刷新退避阶梯**：`_BACKOFF = 60/300/1800/7200` 秒（1→5→30→120 分钟）；刷新成功后写 `cooldown`（默认 30 分钟）并清零 `refresh_fail`。`checkin.py status` 会显示当前退避余量。
 - **响应字段判定统一用 `fafu_lib._has`**：优先按 JSON 键判定，非 JSON（WAF 的 HTML 拦截页）回退子串匹配。不要再用 `'"records"' in body` 这类裸子串判断——服务端改个空格就会静默失效。
 - **不要再引入 `run.sh` / `run.bat` 这类平台专用启动脚本**。它们曾经各自演化出不一致的行为——停止方式（`taskkill /T /F` vs `kill`）、`log` 行数（全量 vs `tail -30`）、`status` 是否报守护状态、PID 文件由谁写——"统一"最后变成了"两套规范"。现在入口只有 `run.py`，平台差异只允许出现在 `_spawn_daemon` 与 `_stop_proc` 两处。
 - **`run.py start` 之后 daemon 必须活下来**。Windows 走 `CREATE_NEW_CONSOLE`（顺带给用户一个看日志的窗口），POSIX 走 `start_new_session`。这条性质在沙箱里会被进程树回收掩盖，验证时要放在后台任务里做——否则会误判成"启动失败"。
@@ -92,9 +92,9 @@
 | 单元测试（离线，不发真实请求） | `python3 -m unittest discover -s tests -v` |
 | 导入检查（最小依赖） | `python3 -c "import fafu_config,fafu_lib,daemon"` |
 | 导入检查（含登录模块，需 numpy/opencv） | `python3 -c "import fafu_login"` |
-| 会话状态 | `python3 rootless_checkin.py status` |
-| 刷新会话 | `python3 rootless_checkin.py refresh` |
-| 立即签到 | `python3 rootless_checkin.py once` |
+| 会话状态 | `python3 checkin.py status` |
+| 刷新会话 | `python3 checkin.py refresh` |
+| 立即签到 | `python3 checkin.py once` |
 | **守护进程管理** | `python3 run.py start / status / log / stop` |
 | 全链路 | `python3 e2e_verify.py` |
 | 调度一轮 | `python3 daemon.py --once` |

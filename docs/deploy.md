@@ -32,10 +32,10 @@ Windows 会开一个可见窗口且**关掉窗口即停止**；平台差异详�
 
 ```cron
 # 保活：07:00-21:25 每 20 分钟（续 token）
-*/20 7-21 * * *  cd /path/to/fafu-checkin-http && python3 rootless_checkin.py refresh >> cron.log 2>&1
+*/20 7-21 * * *  cd /path/to/fafu-checkin-http && python3 checkin.py refresh >> cron.log 2>&1
 # 主签到：21:30-22:30 每分钟（幂等，已签自动跳过）
-30-59/1 21 * * * cd /path/to/fafu-checkin-http && python3 rootless_checkin.py once >> cron.log 2>&1
-* 22 * * *       cd /path/to/fafu-checkin-http && python3 rootless_checkin.py once >> cron.log 2>&1
+30-59/1 21 * * * cd /path/to/fafu-checkin-http && python3 checkin.py once >> cron.log 2>&1
+* 22 * * *       cd /path/to/fafu-checkin-http && python3 checkin.py once >> cron.log 2>&1
 ```
 > 签到窗口按**北京时间（UTC+8）**判断。服务器时区不同请换算，或设 `TZ=Asia/Shanghai`。
 >

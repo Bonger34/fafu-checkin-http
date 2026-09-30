@@ -249,7 +249,7 @@ def query_task(token, rows=5):
     return recs[0]
 
 
-# ---- 一轮签到：判定 + 提交（daemon 与 rootless_checkin 共用同一个 interface）----
+# ---- 一轮签到：判定 + 提交（daemon 与 checkin 共用同一个 interface）----
 
 class SignStatus(str, enum.Enum):
     """一轮签到的结局。
